@@ -30,13 +30,19 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.SchemaChangeCallBack;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.complex.NullableMapVector;
 import org.apache.arrow.vector.complex.UnionVector;
+import org.apache.arrow.vector.complex.impl.ComplexCopier;
 import org.apache.arrow.vector.complex.impl.ComplexWriterImpl;
+import org.apache.arrow.vector.complex.impl.SingleListReaderImpl;
 import org.apache.arrow.vector.complex.impl.SingleMapReaderImpl;
+import org.apache.arrow.vector.complex.impl.SingleMapWriter;
 import org.apache.arrow.vector.complex.impl.UnionListReader;
 import org.apache.arrow.vector.complex.impl.UnionListWriter;
 import org.apache.arrow.vector.complex.impl.UnionReader;
 import org.apache.arrow.vector.complex.impl.UnionWriter;
+import org.apache.arrow.vector.complex.reader.BaseReader.ComplexReader;
+import org.apache.arrow.vector.complex.reader.BaseReader.ListReader;
 import org.apache.arrow.vector.complex.reader.BaseReader.MapReader;
 import org.apache.arrow.vector.complex.reader.FieldReader;
 import org.apache.arrow.vector.complex.writer.BaseWriter.ComplexWriter;
@@ -47,6 +53,8 @@ import org.apache.arrow.vector.types.pojo.ArrowType.Union;
 import org.apache.arrow.vector.types.pojo.ArrowType.Utf8;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.util.CallBack;
+import org.apache.arrow.vector.util.JsonStringArrayList;
+import org.apache.arrow.vector.util.JsonStringHashMap;
 import org.apache.arrow.vector.util.Text;
 import org.apache.arrow.vector.util.TransferPair;
 import org.junit.Assert;
@@ -510,5 +518,41 @@ public class TestComplexWriter {
     Assert.assertEquals(64, intType.getBitWidth());
     Assert.assertTrue(intType.getIsSigned());
     Assert.assertEquals(Utf8.TYPE_TYPE, field.getChildren().get(1).getType().getTypeType());
+  }
+
+  @Test
+  public void complexCopierWithList() {
+    MapVector parent = new MapVector("parent", allocator, null);
+    ComplexWriter writer = new ComplexWriterImpl("root", parent);
+    MapWriter rootWriter = writer.rootAsMap();
+    ListWriter listWriter = rootWriter.list("list");
+    MapWriter innerMapWriter = listWriter.map();
+    IntWriter outerIntWriter = listWriter.integer();
+    rootWriter.start();
+    listWriter.startList();
+    outerIntWriter.writeInt(1);
+    outerIntWriter.writeInt(2);
+    innerMapWriter.start();
+    IntWriter intWriter = innerMapWriter.integer("a");
+    intWriter.writeInt(1);
+    innerMapWriter.end();
+    innerMapWriter.start();
+    intWriter = innerMapWriter.integer("a");
+    intWriter.writeInt(2);
+    innerMapWriter.end();
+    listWriter.endList();
+    rootWriter.end();
+    writer.setValueCount(1);
+
+    NullableMapVector mapVector = (NullableMapVector) parent.getChild("root");
+    TransferPair tp = mapVector.getTransferPair(allocator);
+    tp.splitAndTransfer(0, 1);
+    JsonStringArrayList object = (JsonStringArrayList) ((JsonStringHashMap<String,Object>) ((MapVector) tp.getTo()).getAccessor().getObject(0)).get("list");
+    assertEquals(1, object.get(0));
+    assertEquals(2, object.get(1));
+    JsonStringHashMap<String,Object> innerMap = (JsonStringHashMap<String,Object>) object.get(2);
+    assertEquals(1, innerMap.get("a"));
+    innerMap = (JsonStringHashMap<String,Object>) object.get(3);
+    assertEquals(2, innerMap.get("a"));
   }
 }

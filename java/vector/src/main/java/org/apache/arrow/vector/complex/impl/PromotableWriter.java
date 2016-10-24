@@ -117,7 +117,7 @@ public class PromotableWriter extends AbstractPromotableFieldWriter {
   }
 
   protected FieldWriter getWriter() {
-    return getWriter(type);
+    return writer;
   }
 
   private FieldWriter promoteToUnion() {

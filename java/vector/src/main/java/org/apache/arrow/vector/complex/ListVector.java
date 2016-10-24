@@ -59,7 +59,6 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
   private final List<BufferBacked> innerVectors;
   private Mutator mutator = new Mutator();
   private Accessor accessor = new Accessor();
-  private UnionListWriter writer;
   private UnionListReader reader;
   private CallBack callBack;
 
@@ -68,7 +67,6 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
     this.bits = new BitVector("$bits$", allocator);
     this.offsets = getOffsetVector();
     this.innerVectors = Collections.unmodifiableList(Arrays.<BufferBacked>asList(bits, offsets));
-    this.writer = new UnionListWriter(this);
     this.reader = new UnionListReader(this);
     this.callBack = callBack;
   }
@@ -109,7 +107,7 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
   }
 
   public UnionListWriter getWriter() {
-    return writer;
+    return new UnionListWriter(this);
   }
 
   @Override
