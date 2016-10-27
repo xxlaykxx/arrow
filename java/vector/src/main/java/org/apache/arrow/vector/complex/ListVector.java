@@ -173,6 +173,7 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
       for (TransferPair pair : pairs) {
         pair.transfer();
       }
+      to.lastSet = lastSet;
     }
 
     @Override
