@@ -63,7 +63,7 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
   private CallBack callBack;
 
   public ListVector(String name, BufferAllocator allocator, CallBack callBack) {
-    super(name, allocator);
+    super(name, allocator, callBack);
     this.bits = new BitVector("$bits$", allocator);
     this.offsets = getOffsetVector();
     this.innerVectors = Collections.unmodifiableList(Arrays.<BufferBacked>asList(bits, offsets));
@@ -284,9 +284,12 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
   }
 
   public UnionVector promoteToUnion() {
-    UnionVector vector = new UnionVector(name, allocator, null);
+    UnionVector vector = new UnionVector(name, allocator, callBack);
     replaceDataVector(vector);
     reader = new UnionListReader(this);
+    if (callBack != null) {
+      callBack.doWork();
+    }
     return vector;
   }
 
