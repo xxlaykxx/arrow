@@ -74,8 +74,7 @@ public class Field {
       childrenBuilder.add(convertField(field.children(i)));
     }
     List<Field> children = childrenBuilder.build();
-    Field result = new Field(name, nullable, type, children, new TypeLayout(layout.build()));
-    return result;
+    return new Field(name, nullable, type, children, new TypeLayout(layout.build()));
   }
 
   public void validate() {
@@ -140,10 +139,13 @@ public class Field {
     return Objects.equals(this.name, that.name) &&
             Objects.equals(this.nullable, that.nullable) &&
             Objects.equals(this.type, that.type) &&
-            (Objects.equals(this.children, that.children) ||
-                    (this.children == null && that.children.size() == 0) ||
-                    (this.children.size() == 0 && that.children == null));
+            Objects.equals(this.children, that.children);
 
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(name, nullable, type, children);
   }
 
   @Override
