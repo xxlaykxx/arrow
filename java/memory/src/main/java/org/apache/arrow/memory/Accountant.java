@@ -234,6 +234,15 @@ class Accountant implements AutoCloseable {
     return peakAllocation.get();
   }
 
+  public long getHeadroom(){
+    long localHeadroom = allocationLimit.get() - locallyHeldMemory.get();
+    if(parent == null){
+      return localHeadroom;
+    }
+
+    return Math.min(localHeadroom, parent.getHeadroom());
+  }
+
   /**
    * Describes the type of outcome that occurred when trying to account for allocation of memory.
    */
