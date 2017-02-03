@@ -265,12 +265,15 @@ public class NullableMapVector extends MapVector implements FieldVector {
 
   public final class Mutator extends MapVector.Mutator implements NullableVectorDefinitionSetter {
 
+    int lastSet;
+
     private Mutator(){
     }
 
     @Override
     public void setIndexDefined(int index){
       bits.getMutator().setSafe(index, 1);
+      lastSet = index;
     }
 
     public void setNull(int index){
@@ -282,6 +285,7 @@ public class NullableMapVector extends MapVector implements FieldVector {
       assert valueCount >= 0;
       super.setValueCount(valueCount);
       bits.getMutator().setValueCount(valueCount);
+      lastSet = valueCount;
     }
 
     @Override
