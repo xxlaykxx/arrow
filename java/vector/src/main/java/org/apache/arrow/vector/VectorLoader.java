@@ -55,6 +55,18 @@ public class VectorLoader {
     }
   }
 
+  public VectorLoader(Schema schema, List<FieldVector> vectors) {
+    super();
+    this.fields = schema.getFields();
+    this.fieldVectors = vectors;
+    if (this.fieldVectors.size() != fields.size()) {
+      throw new IllegalArgumentException("The root vector did not create the right number of children. found " + fieldVectors.size() + " expected " + fields.size());
+    }
+    for (int i = 0; i < vectors.size(); i++) {
+      vectors.get(i).initializeChildrenFromFields(fields.get(i).getChildren());
+    }
+  }
+
   /**
    * Loads the record batch in the vectors
    * will not close the record batch

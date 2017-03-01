@@ -46,12 +46,17 @@ public class ArrowRecordBatch implements FBSerializable, AutoCloseable {
 
   private boolean closed = false;
 
+  public ArrowRecordBatch(int length, List<ArrowFieldNode> nodes, List<ArrowBuf> buffers) {
+    this(length, nodes, buffers, true);
+  }
+
   /**
    * @param length how many rows in this batch
    * @param nodes field level info
    * @param buffers will be retained until this recordBatch is closed
+   * @param align whether to align buffers out 8 byte boundaries
    */
-  public ArrowRecordBatch(int length, List<ArrowFieldNode> nodes, List<ArrowBuf> buffers) {
+  public ArrowRecordBatch(int length, List<ArrowFieldNode> nodes, List<ArrowBuf> buffers, boolean align) {
     super();
     this.length = length;
     this.nodes = nodes;
@@ -64,7 +69,7 @@ public class ArrowRecordBatch implements FBSerializable, AutoCloseable {
       arrowBuffers.add(new ArrowBuffer(0, offset, size));
       LOGGER.debug(String.format("Buffer in RecordBatch at %d, length: %d", offset, size));
       offset += size;
-      if (offset % 8 != 0) { // align on 8 byte boundaries
+      if (align && offset % 8 != 0) { // align on 8 byte boundaries
         offset += 8 - (offset % 8);
       }
     }

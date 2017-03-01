@@ -20,11 +20,18 @@ package org.apache.arrow.vector;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import org.apache.arrow.vector.ValueVector.Accessor;
+import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.schema.ArrowFieldNode;
 import org.apache.arrow.vector.schema.ArrowRecordBatch;
 import org.apache.arrow.vector.schema.ArrowVectorType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+
+import com.google.common.base.Function;
+import com.google.common.collect.FluentIterable;
 
 import io.netty.buffer.ArrowBuf;
 
@@ -41,17 +48,35 @@ public class VectorUnloader {
     this.vectors = parent.getChildrenFromFields();
   }
 
+  public VectorUnloader(int valueCount, List<FieldVector> vectors) {
+    this.schema = new Schema(FluentIterable
+            .from(vectors)
+            .transform(new Function<FieldVector, Field>() {
+              @Override
+              public Field apply(FieldVector vector) {
+                return vector.getField();
+              }
+            }).toList()
+    );
+    this.valueCount = valueCount;
+    this.vectors = vectors;
+  }
+
   public Schema getSchema() {
     return schema;
   }
 
   public ArrowRecordBatch getRecordBatch() {
+    return getRecordBatch(true);
+  }
+
+  public ArrowRecordBatch getRecordBatch(boolean align) {
     List<ArrowFieldNode> nodes = new ArrayList<>();
     List<ArrowBuf> buffers = new ArrayList<>();
     for (FieldVector vector : vectors) {
       appendNodes(vector, nodes, buffers);
     }
-    return new ArrowRecordBatch(valueCount, nodes, buffers);
+    return new ArrowRecordBatch(valueCount, nodes, buffers, align);
   }
 
   private void appendNodes(FieldVector vector, List<ArrowFieldNode> nodes, List<ArrowBuf> buffers) {
