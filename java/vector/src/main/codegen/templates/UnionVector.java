@@ -16,6 +16,8 @@
  * limitations under the License.
  */
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BufferBacked;
+import org.apache.arrow.vector.BuffersIterator;
 import org.apache.arrow.vector.complex.UnionVector.TransferImpl;
 import org.apache.arrow.vector.util.CallBack;
 import org.apache.arrow.vector.util.TransferPair;
@@ -112,6 +114,14 @@ public class UnionVector implements FieldVector {
   public void loadFieldBuffers(ArrowFieldNode fieldNode, List<ArrowBuf> ownBuffers) {
     BaseDataValueVector.load(getFieldInnerVectors(), ownBuffers);
     this.valueCount = fieldNode.getLength();
+  }
+
+  @Override
+  public void loadFieldBuffers(BuffersIterator buffersIterator, ArrowBuf buf) {
+    for (BufferBacked vector : getFieldInnerVectors()) {
+      buffersIterator.next();
+      ArrowBuf buffer = buf.slice((int) buffersIterator.offset(), (int) buffersIterator.length());
+    }
   }
 
   @Override
