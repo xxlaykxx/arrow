@@ -302,7 +302,7 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector {
   }
 
   public UnionVector promoteToUnion() {
-    UnionVector vector = new UnionVector(name, allocator, callBack);
+    UnionVector vector = new UnionVector("$data$", allocator, callBack);
     replaceDataVector(vector);
     reader = new UnionListReader(this);
     if (callBack != null) {
