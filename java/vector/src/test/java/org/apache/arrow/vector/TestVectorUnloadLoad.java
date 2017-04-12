@@ -26,11 +26,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-
-import javax.annotation.Nullable;
 
 import org.apache.arrow.flatbuf.Buffer;
 import org.apache.arrow.flatbuf.RecordBatch;
@@ -39,10 +37,8 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.impl.ComplexWriterImpl;
-import org.apache.arrow.vector.complex.reader.FieldReader;
-import org.apache.arrow.vector.complex.impl.SingleMapReaderImpl;
 import org.apache.arrow.vector.complex.impl.UnionListWriter;
-import org.apache.arrow.vector.complex.reader.BaseReader.MapReader;
+import org.apache.arrow.vector.complex.reader.FieldReader;
 import org.apache.arrow.vector.complex.writer.BaseWriter.ComplexWriter;
 import org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter;
 import org.apache.arrow.vector.complex.writer.BaseWriter.MapWriter;
@@ -66,7 +62,6 @@ import com.google.flatbuffers.FlatBufferBuilder;
 
 import io.netty.buffer.ArrowBuf;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.CompositeByteBuf;
 
 public class TestVectorUnloadLoad {
 
@@ -271,10 +266,10 @@ public class TestVectorUnloadLoad {
   @Test
   public void testWithoutFieldNodes() throws Exception {
     BufferAllocator original = allocator.newChildAllocator("original", 0, Integer.MAX_VALUE);
-    NullableIntVector intVector = new NullableIntVector("int", original, null);
-    NullableVarCharVector varCharVector = new NullableVarCharVector("int", original, null);
-    ListVector listVector = new ListVector("list", original, null, null);
-    ListVector innerListVector = (ListVector) listVector.addOrGetVector(MinorType.LIST, null).getVector();
+    NullableIntVector intVector = new NullableIntVector("int", original);
+    NullableVarCharVector varCharVector = new NullableVarCharVector("int", original);
+    ListVector listVector = ListVector.empty("list", original);
+    ListVector innerListVector = (ListVector) listVector.addOrGetVector(FieldType.nullable(MinorType.LIST.getType())).getVector();
 
     intVector.allocateNew();;
     varCharVector.allocateNew();
@@ -336,10 +331,10 @@ public class TestVectorUnloadLoad {
     body.writeBytes(bytes);
 
 
-    NullableIntVector newIntVector = new NullableIntVector("newInt", newAllocator, null);
-    NullableVarCharVector newVarCharVector = new NullableVarCharVector("newVarChar", newAllocator, null);
-    ListVector newListVector = new ListVector("newListVector", newAllocator, null, null);
-    ((ListVector) newListVector.addOrGetVector(MinorType.LIST, null).getVector()).addOrGetVector(MinorType.INT, null);
+    NullableIntVector newIntVector = new NullableIntVector("newInt", newAllocator);
+    NullableVarCharVector newVarCharVector = new NullableVarCharVector("newVarChar", newAllocator);
+    ListVector newListVector = ListVector.empty("newListVector", newAllocator);
+    ((ListVector) newListVector.addOrGetVector(FieldType.nullable(MinorType.LIST.getType())).getVector()).addOrGetVector(FieldType.nullable(MinorType.INT.getType()));
 
     BuffersIterator buffersIterator = new BuffersIterator(recordBatch);
 
