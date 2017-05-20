@@ -355,7 +355,6 @@ public final class ${minor.class}Vector extends BaseDataValueVector implements V
   }
 
   public void reAlloc() {
-    offsetVector.reAlloc();
     final long newAllocationSize = allocationSizeInBytes*2L;
     if (newAllocationSize > MAX_ALLOCATION_SIZE)  {
       throw new OversizedAllocationException("Unable to expand the buffer. Max allowed buffer size is reached.");
