@@ -247,7 +247,9 @@ public class MessageSerializer {
     }
     ArrowRecordBatch arrowRecordBatch =
         new ArrowRecordBatch((int)recordBatchFB.length(), nodes, buffers);
-    body.release();
+    for (ArrowBuf buf : buffers) {
+      buf.release();
+    }
     return arrowRecordBatch;
   }
 
