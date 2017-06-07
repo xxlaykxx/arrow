@@ -174,8 +174,12 @@ public class UnionListWriter extends AbstractFieldWriter {
     writer.setPosition(writer.idx()+1);
   }
 
-  </#if>
+  public void write(${name}Holder holder) {
+    writer.write${name}(<#list fields as field>holder.${field.name}<#if field_has_next>, </#if></#list>);
+    writer.setPosition(writer.idx()+1);
+  }
 
-  </#list></#list>
-
+      </#if>
+    </#list>
+  </#list>
 }

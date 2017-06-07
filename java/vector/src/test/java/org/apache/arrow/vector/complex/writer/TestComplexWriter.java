@@ -42,6 +42,7 @@ import org.apache.arrow.vector.complex.reader.FieldReader;
 import org.apache.arrow.vector.complex.writer.BaseWriter.ComplexWriter;
 import org.apache.arrow.vector.complex.writer.BaseWriter.ListWriter;
 import org.apache.arrow.vector.complex.writer.BaseWriter.MapWriter;
+import org.apache.arrow.vector.holders.IntHolder;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID;
 import org.apache.arrow.vector.types.pojo.ArrowType.Int;
@@ -213,7 +214,13 @@ public class TestComplexWriter {
     for (int i = 0; i < COUNT; i++) {
       listWriter.startList();
       for (int j = 0; j < i % 7; j++) {
-        listWriter.writeInt(j);
+        if (j%2 == 0) {
+          listWriter.writeInt(j);
+        } else {
+          IntHolder holder = new IntHolder();
+          holder.value = j;
+          listWriter.write(holder);
+        }
       }
       listWriter.endList();
     }
