@@ -57,7 +57,7 @@ class ARROW_EXPORT RecordBatchReader {
   ///
   /// \param(out) batch the next loaded batch, nullptr at end of stream
   /// \return Status
-  virtual Status GetNextRecordBatch(std::shared_ptr<RecordBatch>* batch) = 0;
+  virtual Status ReadNextRecordBatch(std::shared_ptr<RecordBatch>* batch) = 0;
 };
 
 /// \class RecordBatchStreamReader
@@ -66,16 +66,24 @@ class ARROW_EXPORT RecordBatchStreamReader : public RecordBatchReader {
  public:
   virtual ~RecordBatchStreamReader();
 
-  /// Create batch reader from InputStream
+  /// Create batch reader from generic MessageReader
+  ///
+  /// \param(in) message_reader a MessageReader implementation
+  /// \param(out) out the created RecordBatchStreamReader object
+  /// \return Status
+  static Status Open(std::unique_ptr<MessageReader> message_reader,
+                     std::shared_ptr<RecordBatchStreamReader>* out);
+
+  /// \Create Record batch stream reader from InputStream
   ///
   /// \param(in) stream an input stream instance
-  /// \param(out) reader the created reader object
+  /// \param(out) out the created RecordBatchStreamReader object
   /// \return Status
   static Status Open(const std::shared_ptr<io::InputStream>& stream,
-      std::shared_ptr<RecordBatchStreamReader>* reader);
+                     std::shared_ptr<RecordBatchStreamReader>* out);
 
   std::shared_ptr<Schema> schema() const override;
-  Status GetNextRecordBatch(std::shared_ptr<RecordBatch>* batch) override;
+  Status ReadNextRecordBatch(std::shared_ptr<RecordBatch>* batch) override;
 
  private:
   RecordBatchStreamReader();
@@ -95,7 +103,7 @@ class ARROW_EXPORT RecordBatchFileReader {
   // need only locate the end of the Arrow file stream to discover the metadata
   // and then proceed to read the data into memory.
   static Status Open(const std::shared_ptr<io::RandomAccessFile>& file,
-      std::shared_ptr<RecordBatchFileReader>* reader);
+                     std::shared_ptr<RecordBatchFileReader>* reader);
 
   // If the file is embedded within some larger file or memory region, you can
   // pass the absolute memory offset to the end of the file (which contains the
@@ -105,7 +113,8 @@ class ARROW_EXPORT RecordBatchFileReader {
   // @param file: the data source
   // @param footer_offset: the position of the end of the Arrow "file"
   static Status Open(const std::shared_ptr<io::RandomAccessFile>& file,
-      int64_t footer_offset, std::shared_ptr<RecordBatchFileReader>* reader);
+                     int64_t footer_offset,
+                     std::shared_ptr<RecordBatchFileReader>* reader);
 
   /// The schema includes any dictionaries
   std::shared_ptr<Schema> schema() const;
@@ -122,7 +131,7 @@ class ARROW_EXPORT RecordBatchFileReader {
   /// \param(in) i the index of the record batch to return
   /// \param(out) batch the read batch
   /// \return Status
-  Status GetRecordBatch(int i, std::shared_ptr<RecordBatch>* batch);
+  Status ReadRecordBatch(int i, std::shared_ptr<RecordBatch>* batch);
 
  private:
   RecordBatchFileReader();
@@ -133,15 +142,26 @@ class ARROW_EXPORT RecordBatchFileReader {
 
 // Generic read functions; does not copy data if the input supports zero copy reads
 
-/// Read record batch from file given metadata and schema
+/// \brief Read record batch from file given metadata and schema
 ///
 /// \param(in) metadata a Message containing the record batch metadata
 /// \param(in) schema the record batch schema
 /// \param(in) file a random access file
 /// \param(out) out the read record batch
-Status ARROW_EXPORT ReadRecordBatch(const Message& metadata,
-    const std::shared_ptr<Schema>& schema, io::RandomAccessFile* file,
-    std::shared_ptr<RecordBatch>* out);
+Status ARROW_EXPORT ReadRecordBatch(const Buffer& metadata,
+                                    const std::shared_ptr<Schema>& schema,
+                                    io::RandomAccessFile* file,
+                                    std::shared_ptr<RecordBatch>* out);
+
+/// \brief Read record batch from fully encapulated Message
+///
+/// \param[in] message a message instance containing metadata and body
+/// \param[in] schema
+/// \param[out] out the resulting RecordBatch
+/// \return Status
+Status ARROW_EXPORT ReadRecordBatch(const Message& message,
+                                    const std::shared_ptr<Schema>& schema,
+                                    std::shared_ptr<RecordBatch>* out);
 
 /// Read record batch from file given metadata and schema
 ///
@@ -150,9 +170,10 @@ Status ARROW_EXPORT ReadRecordBatch(const Message& metadata,
 /// \param(in) file a random access file
 /// \param(in) max_recursion_depth the maximum permitted nesting depth
 /// \param(out) out the read record batch
-Status ARROW_EXPORT ReadRecordBatch(const Message& metadata,
-    const std::shared_ptr<Schema>& schema, int max_recursion_depth,
-    io::RandomAccessFile* file, std::shared_ptr<RecordBatch>* out);
+Status ARROW_EXPORT ReadRecordBatch(const Buffer& metadata,
+                                    const std::shared_ptr<Schema>& schema,
+                                    int max_recursion_depth, io::RandomAccessFile* file,
+                                    std::shared_ptr<RecordBatch>* out);
 
 /// Read record batch as encapsulated IPC message with metadata size prefix and
 /// header
@@ -162,15 +183,16 @@ Status ARROW_EXPORT ReadRecordBatch(const Message& metadata,
 /// \param(in) file the file where the batch is located
 /// \param(out) out the read record batch
 Status ARROW_EXPORT ReadRecordBatch(const std::shared_ptr<Schema>& schema, int64_t offset,
-    io::RandomAccessFile* file, std::shared_ptr<RecordBatch>* out);
+                                    io::RandomAccessFile* file,
+                                    std::shared_ptr<RecordBatch>* out);
 
 /// EXPERIMENTAL: Read arrow::Tensor as encapsulated IPC message in file
 ///
 /// \param(in) offset the file location of the start of the message
 /// \param(in) file the file where the batch is located
 /// \param(out) out the read tensor
-Status ARROW_EXPORT ReadTensor(
-    int64_t offset, io::RandomAccessFile* file, std::shared_ptr<Tensor>* out);
+Status ARROW_EXPORT ReadTensor(int64_t offset, io::RandomAccessFile* file,
+                               std::shared_ptr<Tensor>* out);
 
 /// Backwards-compatibility for Arrow < 0.4.0
 ///

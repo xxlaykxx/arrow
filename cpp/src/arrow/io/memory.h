@@ -45,7 +45,7 @@ class ARROW_EXPORT BufferOutputStream : public OutputStream {
   explicit BufferOutputStream(const std::shared_ptr<ResizableBuffer>& buffer);
 
   static Status Create(int64_t initial_capacity, MemoryPool* pool,
-      std::shared_ptr<BufferOutputStream>* out);
+                       std::shared_ptr<BufferOutputStream>* out);
 
   ~BufferOutputStream();
 
@@ -65,6 +65,22 @@ class ARROW_EXPORT BufferOutputStream : public OutputStream {
   int64_t capacity_;
   int64_t position_;
   uint8_t* mutable_data_;
+};
+
+// A helper class to tracks the size of allocations
+class ARROW_EXPORT MockOutputStream : public OutputStream {
+ public:
+  MockOutputStream() : extent_bytes_written_(0) {}
+
+  // Implement the OutputStream interface
+  Status Close() override;
+  Status Tell(int64_t* position) override;
+  Status Write(const uint8_t* data, int64_t nbytes) override;
+
+  int64_t GetExtentBytesWritten() const { return extent_bytes_written_; }
+
+ private:
+  int64_t extent_bytes_written_;
 };
 
 /// \brief Enables random writes into a fixed-size mutable buffer

@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  ******************************************************************************/
+
 package org.apache.arrow.vector.file.json;
 
 import static com.fasterxml.jackson.core.JsonToken.END_ARRAY;
@@ -26,8 +27,12 @@ import static org.apache.arrow.vector.schema.ArrowVectorType.OFFSET;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
@@ -62,9 +67,12 @@ import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.NullableMapVector;
+import org.apache.arrow.vector.dictionary.Dictionary;
+import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.schema.ArrowVectorType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.arrow.vector.util.DictionaryUtility;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 
@@ -74,11 +82,13 @@ import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.MappingJsonFactory;
 import com.google.common.base.Objects;
 
-public class JsonFileReader implements AutoCloseable {
+public class JsonFileReader implements AutoCloseable, DictionaryProvider {
   private final File inputFile;
   private final JsonParser parser;
   private final BufferAllocator allocator;
   private Schema schema;
+  private Map<Long, Dictionary> dictionaries;
+  private Boolean started = false;
 
   public JsonFileReader(File inputFile, BufferAllocator allocator) throws JsonParseException, IOException {
     super();
@@ -88,13 +98,68 @@ public class JsonFileReader implements AutoCloseable {
     this.parser = jsonFactory.createParser(inputFile);
   }
 
+  @Override
+  public Dictionary lookup(long id) {
+    if (!started) {
+      throw new IllegalStateException("Unable to lookup until after read() has started");
+    }
+
+    return dictionaries.get(id);
+  }
+
   public Schema start() throws JsonParseException, IOException {
     readToken(START_OBJECT);
     {
-      this.schema = readNextField("schema", Schema.class);
+      Schema originalSchema = readNextField("schema", Schema.class);
+      List<Field> fields = new ArrayList<>();
+      dictionaries = new HashMap<>();
+
+      // Convert fields with dictionaries to have the index type
+      for (Field field : originalSchema.getFields()) {
+        fields.add(DictionaryUtility.toMemoryFormat(field, allocator, dictionaries));
+      }
+      this.schema = new Schema(fields, originalSchema.getCustomMetadata());
+
+      if (!dictionaries.isEmpty()) {
+        nextFieldIs("dictionaries");
+        readDictionaryBatches();
+      }
+
       nextFieldIs("batches");
       readToken(START_ARRAY);
-      return schema;
+      started = true;
+      return this.schema;
+    }
+  }
+
+  private void readDictionaryBatches() throws JsonParseException, IOException {
+    readToken(START_ARRAY);
+    JsonToken token = parser.nextToken();
+    boolean haveDictionaryBatch = token == START_OBJECT;
+    while (haveDictionaryBatch) {
+
+      // Lookup what dictionary for the batch about to be read
+      long id = readNextField("id", Long.class);
+      Dictionary dict = dictionaries.get(id);
+      if (dict == null) {
+        throw new IllegalArgumentException("Dictionary with id: " + id + " missing encoding from schema Field");
+      }
+
+      // Read the dictionary record batch
+      nextFieldIs("data");
+      FieldVector vector = dict.getVector();
+      List<Field> fields = ImmutableList.of(vector.getField());
+      List<FieldVector> vectors = ImmutableList.of(vector);
+      VectorSchemaRoot root = new VectorSchemaRoot(fields, vectors, vector.getAccessor().getValueCount());
+      read(root);
+
+      readToken(END_OBJECT);
+      token = parser.nextToken();
+      haveDictionaryBatch = token == START_OBJECT;
+    }
+
+    if (token != END_ARRAY) {
+      throw new IllegalArgumentException("Invalid token: " + token + " expected end of array at " + parser.getTokenLocation());
     }
   }
 
@@ -107,7 +172,7 @@ public class JsonFileReader implements AutoCloseable {
         nextFieldIs("columns");
         readToken(START_ARRAY);
         {
-          for (Field field : schema.getFields()) {
+          for (Field field : root.getSchema().getFields()) {
             FieldVector vector = root.getVector(field.getName());
             readVector(field, vector);
           }
@@ -158,8 +223,9 @@ public class JsonFileReader implements AutoCloseable {
     }
     readToken(START_OBJECT);
     {
+      // If currently reading dictionaries, field name is not important so don't check
       String name = readNextField("name", String.class);
-      if (!Objects.equal(field.getName(), name)) {
+      if (started && !Objects.equal(field.getName(), name)) {
         throw new IllegalArgumentException("Expected field " + field.getName() + " but got " + name);
       }
       int count = readNextField("count", Integer.class);
@@ -168,7 +234,7 @@ public class JsonFileReader implements AutoCloseable {
         BufferBacked innerVector = fieldInnerVectors.get(v);
         nextFieldIs(vectorType.getName());
         readToken(START_ARRAY);
-        ValueVector valueVector = (ValueVector)innerVector;
+        ValueVector valueVector = (ValueVector) innerVector;
         valueVector.allocateNew();
         Mutator mutator = valueVector.getMutator();
 
@@ -197,7 +263,7 @@ public class JsonFileReader implements AutoCloseable {
         readToken(END_ARRAY);
       }
       if (vector instanceof NullableMapVector) {
-        ((NullableMapVector)vector).valueCount = count;
+        ((NullableMapVector) vector).valueCount = count;
       }
     }
     readToken(END_OBJECT);
@@ -213,95 +279,98 @@ public class JsonFileReader implements AutoCloseable {
 
   private void setValueFromParser(ValueVector valueVector, int i) throws IOException {
     switch (valueVector.getMinorType()) {
-    case BIT:
-      ((BitVector)valueVector).getMutator().set(i, parser.readValueAs(Boolean.class) ? 1 : 0);
-      break;
-    case TINYINT:
-      ((TinyIntVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case SMALLINT:
-      ((SmallIntVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case INT:
-      ((IntVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case BIGINT:
-      ((BigIntVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case UINT1:
-      ((UInt1Vector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case UINT2:
-      ((UInt2Vector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case UINT4:
-      ((UInt4Vector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case UINT8:
-      ((UInt8Vector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case FLOAT4:
-      ((Float4Vector)valueVector).getMutator().set(i, parser.readValueAs(Float.class));
-      break;
-    case FLOAT8:
-      ((Float8Vector)valueVector).getMutator().set(i, parser.readValueAs(Double.class));
-      break;
-    case VARBINARY:
-      ((VarBinaryVector)valueVector).getMutator().setSafe(i, decodeHexSafe(parser.readValueAs(String.class)));
-      break;
-    case VARCHAR:
-      ((VarCharVector)valueVector).getMutator().setSafe(i, parser.readValueAs(String.class).getBytes(UTF_8));
-      break;
-    case DATEDAY:
-      ((DateDayVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case DATEMILLI:
-      ((DateMilliVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESEC:
-      ((TimeSecVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case TIMEMILLI:
-      ((TimeMilliVector)valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
-      break;
-    case TIMEMICRO:
-      ((TimeMicroVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMENANO:
-      ((TimeNanoVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPSEC:
-      ((TimeStampSecVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPMILLI:
-      ((TimeStampMilliVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPMICRO:
-      ((TimeStampMicroVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPNANO:
-      ((TimeStampNanoVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPSECTZ:
-      ((TimeStampSecTZVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPMILLITZ:
-      ((TimeStampMilliTZVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPMICROTZ:
-      ((TimeStampMicroTZVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    case TIMESTAMPNANOTZ:
-      ((TimeStampNanoTZVector)valueVector).getMutator().set(i, parser.readValueAs(Long.class));
-      break;
-    default:
-      throw new UnsupportedOperationException("minor type: " + valueVector.getMinorType());
+      case BIT:
+        ((BitVector) valueVector).getMutator().set(i, parser.readValueAs(Boolean.class) ? 1 : 0);
+        break;
+      case TINYINT:
+        ((TinyIntVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case SMALLINT:
+        ((SmallIntVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case INT:
+        ((IntVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case BIGINT:
+        ((BigIntVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case UINT1:
+        ((UInt1Vector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case UINT2:
+        ((UInt2Vector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case UINT4:
+        ((UInt4Vector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case UINT8:
+        ((UInt8Vector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case FLOAT4:
+        ((Float4Vector) valueVector).getMutator().set(i, parser.readValueAs(Float.class));
+        break;
+      case FLOAT8:
+        ((Float8Vector) valueVector).getMutator().set(i, parser.readValueAs(Double.class));
+        break;
+      case VARBINARY:
+        ((VarBinaryVector) valueVector).getMutator().setSafe(i, decodeHexSafe(parser.readValueAs(String.class)));
+        break;
+      case VARCHAR:
+        ((VarCharVector) valueVector).getMutator().setSafe(i, parser.readValueAs(String.class).getBytes(UTF_8));
+        break;
+      case DATEDAY:
+        ((DateDayVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case DATEMILLI:
+        ((DateMilliVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESEC:
+        ((TimeSecVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case TIMEMILLI:
+        ((TimeMilliVector) valueVector).getMutator().set(i, parser.readValueAs(Integer.class));
+        break;
+      case TIMEMICRO:
+        ((TimeMicroVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMENANO:
+        ((TimeNanoVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPSEC:
+        ((TimeStampSecVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPMILLI:
+        ((TimeStampMilliVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPMICRO:
+        ((TimeStampMicroVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPNANO:
+        ((TimeStampNanoVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPSECTZ:
+        ((TimeStampSecTZVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPMILLITZ:
+        ((TimeStampMilliTZVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPMICROTZ:
+        ((TimeStampMicroTZVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      case TIMESTAMPNANOTZ:
+        ((TimeStampNanoTZVector) valueVector).getMutator().set(i, parser.readValueAs(Long.class));
+        break;
+      default:
+        throw new UnsupportedOperationException("minor type: " + valueVector.getMinorType());
     }
   }
 
   @Override
   public void close() throws IOException {
     parser.close();
+    for (Dictionary dictionary : dictionaries.values()) {
+      dictionary.getVector().close();
+    }
   }
 
   private <T> T readNextField(String expectedFieldName, Class<T> c) throws IOException, JsonParseException {

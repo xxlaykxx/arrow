@@ -32,9 +32,10 @@ namespace arrow {
 class ARROW_EXPORT KeyValueMetadata {
  public:
   KeyValueMetadata();
-  KeyValueMetadata(
-      const std::vector<std::string>& keys, const std::vector<std::string>& values);
+  KeyValueMetadata(const std::vector<std::string>& keys,
+                   const std::vector<std::string>& values);
   explicit KeyValueMetadata(const std::unordered_map<std::string, std::string>& map);
+  virtual ~KeyValueMetadata() = default;
 
   void ToUnorderedMap(std::unordered_map<std::string, std::string>* out) const;
 

@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 2.7)
+cmake_minimum_required(VERSION 3.2)
 project(arrow)
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../java/pom.xml" POM_XML)
@@ -29,12 +29,13 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake_modules")
 include(CMakeParseArguments)
 include(ExternalProject)
 
-if(CMAKE_MAJOR_VERSION LESS 3)
-  set(CMAKE_INSTALL_INCLUDEDIR "include")
-  set(CMAKE_INSTALL_LIBDIR "lib")
-else()
-  include(GNUInstallDirs)
-endif()
+# This ensures that things like gnu++11 get passed correctly
+set(CMAKE_CXX_STANDARD 11)
+
+# We require a C++11 compliant compiler
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(GNUInstallDirs)
 
 # Compatibility with CMake 3.1
 if(POLICY CMP0054)
@@ -99,7 +100,7 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
 
   option(ARROW_JEMALLOC
     "Build the Arrow jemalloc-based allocator"
-    ON)
+    OFF)
 
   option(ARROW_JEMALLOC_USE_SHARED
     "Rely on jemalloc shared libraries where relevant"
@@ -112,6 +113,10 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
   option(ARROW_BOOST_USE_SHARED
     "Rely on boost shared libraries where relevant"
     ON)
+
+  option(ARROW_BOOST_VENDORED
+    "Use vendored Boost instead of existing Boost"
+    OFF)
 
   option(ARROW_PYTHON
     "Build the Arrow CPython extensions"
@@ -141,22 +146,54 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
     "Build with SSE4 optimizations"
     OFF)
 
-  option(ARROW_ZLIB_VENDORED
-    "Build our own zlib (some libz.a aren't configured for static linking)"
+  option(ARROW_WITH_BROTLI
+    "Build with Brotli compression"
     ON)
+
+  option(ARROW_WITH_LZ4
+    "Build with lz4 compression"
+    ON)
+
+  option(ARROW_WITH_SNAPPY
+    "Build with Snappy compression"
+    ON)
+
+  option(ARROW_WITH_ZLIB
+    "Build with zlib compression"
+    ON)
+
+  option(ARROW_WITH_ZSTD
+    "Build with zstd compression"
+    ON)
+
+  option(ARROW_VERBOSE_THIRDPARTY_BUILD
+    "If off, output from ExternalProjects will be logged to files rather than shown"
+    ON)
+
   if (MSVC)
     set(BROTLI_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
       "Brotli static lib suffix used on Windows with MSVC (default _static)")
-    set(SNAPPY_MSVC_STATIC_LIB_SUFFIX "" CACHE STRING
+    set(SNAPPY_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
       "Snappy static lib suffix used on Windows with MSVC (default is empty string)")
     set(ZLIB_MSVC_STATIC_LIB_SUFFIX "libstatic" CACHE STRING
       "Zlib static lib suffix used on Windows with MSVC (default libstatic)")
+    set(LZ4_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
+      "Lz4 static lib suffix used on Windows with MSVC (default _static)")
+    set(ZSTD_MSVC_STATIC_LIB_SUFFIX "_static" CACHE STRING
+      "ZStd static lib suffix used on Windows with MSVC (default _static)")
   endif()
 endif()
 
-if(ARROW_BUILD_TESTS)
+if(ARROW_BUILD_TESTS OR ARROW_BUILD_BENCHMARKS)
   set(ARROW_BUILD_STATIC ON)
-else()
+  set(ARROW_WITH_BROTLI ON)
+  set(ARROW_WITH_LZ4 ON)
+  set(ARROW_WITH_SNAPPY ON)
+  set(ARROW_WITH_ZLIB ON)
+  set(ARROW_WITH_ZSTD ON)
+endif()
+
+if(NOT ARROW_BUILD_TESTS)
   set(NO_TESTS 1)
 endif()
 
@@ -214,6 +251,7 @@ include(san-config)
 
 # For any C code, use the same flags.
 set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS}")
+
 # Remove --std=c++11 to avoid errors from C compilers
 string(REPLACE "-std=c++11" "" CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
 
@@ -273,8 +311,28 @@ include_directories(src)
 # For generate_export_header() and add_compiler_export_flags().
 include(GenerateExportHeader)
 
-# Sets -fvisibility=hidden for gcc
-add_compiler_export_flags()
+# Adapted from Apache Kudu: https://github.com/apache/kudu/commit/bd549e13743a51013585
+# Honor visibility properties for all target types. See
+# "cmake --help-policy CMP0063" for details.
+#
+# This policy was only added to cmake in version 3.3, so until the cmake in
+# thirdparty is updated, we must check if the policy exists before setting it.
+if(POLICY CMP0063)
+  cmake_policy(SET CMP0063 NEW)
+endif()
+
+if (PARQUET_BUILD_SHARED)
+  if (POLICY CMP0063)
+    set_target_properties(arrow_shared
+      PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN 1)
+  else()
+    # Sets -fvisibility=hidden for gcc
+    add_compiler_export_flags()
+  endif()
+endif()
 
 ############################################################
 # Benchmarking
@@ -488,25 +546,22 @@ endif (UNIX)
 ############################################################
 # "make format" and "make check-format" targets
 ############################################################
-if (${CLANG_FORMAT_FOUND})
-  # runs clang format and updates files in place.
-  add_custom_target(format ${BUILD_SUPPORT_DIR}/run-clang-format.sh ${CMAKE_CURRENT_SOURCE_DIR} ${CLANG_FORMAT_BIN} 1
-    `find ${CMAKE_CURRENT_SOURCE_DIR}/src -name \\*.cc -or -name \\*.h |
-    sed -e '/_generated/g' |
-    sed -e '/windows_compatibility.h/g' |
-    sed -e '/pyarrow_api.h/g' |
-    sed -e '/config.h/g' |   # python/config.h
-    sed -e '/platform.h/g' |  # python/platform.h
-    sed -e '/ae.h/g' |
-    sed -e '/xxhash.cc/g' |
-    sed -e '/xxhash.h/g'`
-    )
 
-  # runs clang format and exits with a non-zero exit code if any files need to be reformatted
-  add_custom_target(check-format ${BUILD_SUPPORT_DIR}/run-clang-format.sh ${CMAKE_CURRENT_SOURCE_DIR} ${CLANG_FORMAT_BIN} 0
-  `find ${CMAKE_CURRENT_SOURCE_DIR}/src -name \\*.cc -or -name \\*.h | sed -e '/_generated/g'`)
-endif()
+set(CLANG_FORMAT_VERSION 3.9)
 
+# runs clang format and updates files in place.
+add_custom_target(format ${BUILD_SUPPORT_DIR}/run_clang_format.py
+  ${CLANG_FORMAT_VERSION}
+  ${BUILD_SUPPORT_DIR}/clang_format_exclusions.txt
+  ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# runs clang format and exits with a non-zero exit code if any files need to be reformatted
+
+# TODO(wesm): Make this work in run_clang_format.py
+# add_custom_target(check-format ${BUILD_SUPPORT_DIR}/run_clang_format.py
+#   ${CLANG_FORMAT_VERSION}
+#   ${BUILD_SUPPORT_DIR}/clang_format_exclusions.txt
+#   ${CMAKE_CURRENT_SOURCE_DIR}/src 1)
 
 ############################################################
 # "make clang-tidy" and "make check-clang-tidy" targets
@@ -525,28 +580,35 @@ endif()
 # Linker and Dependencies
 ############################################################
 
-set(ARROW_STATIC_LINK_LIBS
-  brotli_dec
-  brotli_enc
-  brotli_common
-  snappy
-  zlib)
+set(ARROW_STATIC_LINK_LIBS)
 
-add_dependencies(arrow_dependencies ${ARROW_STATIC_LINK_LIBS})
-
-set(ARROW_MIN_TEST_LIBS
-  arrow_static
-  ${ARROW_STATIC_LINK_LIBS}
-  gtest
-  gtest_main)
-
-if(NOT MSVC)
-  set(ARROW_MIN_TEST_LIBS
-    ${ARROW_MIN_TEST_LIBS}
-    ${CMAKE_DL_LIBS})
+if (ARROW_WITH_BROTLI)
+  SET(ARROW_STATIC_LINK_LIBS
+    brotli_dec
+    brotli_enc
+    brotli_common
+    ${ARROW_STATIC_LINK_LIBS})
 endif()
 
-set(ARROW_TEST_LINK_LIBS ${ARROW_MIN_TEST_LIBS})
+if (ARROW_WITH_LZ4)
+  SET(ARROW_STATIC_LINK_LIBS lz4_static ${ARROW_STATIC_LINK_LIBS})
+endif()
+
+if (ARROW_WITH_SNAPPY)
+  SET(ARROW_STATIC_LINK_LIBS snappy ${ARROW_STATIC_LINK_LIBS})
+endif()
+
+if (ARROW_WITH_ZLIB)
+  SET(ARROW_STATIC_LINK_LIBS zlib ${ARROW_STATIC_LINK_LIBS})
+endif()
+
+if (ARROW_WITH_ZSTD)
+  SET(ARROW_STATIC_LINK_LIBS zstd_static ${ARROW_STATIC_LINK_LIBS})
+endif()
+
+if (ARROW_STATIC_LINK_LIBS)
+  add_dependencies(arrow_dependencies ${ARROW_STATIC_LINK_LIBS})
+endif()
 
 set(ARROW_BENCHMARK_LINK_LIBS
   arrow_static
@@ -569,6 +631,20 @@ if (NOT MSVC)
     ${ARROW_LINK_LIBS}
     ${CMAKE_DL_LIBS})
 endif()
+
+set(ARROW_MIN_TEST_LIBS
+  arrow_static
+  ${ARROW_STATIC_LINK_LIBS}
+  gtest
+  gtest_main)
+
+if(NOT MSVC)
+  set(ARROW_MIN_TEST_LIBS
+    ${ARROW_MIN_TEST_LIBS}
+    ${CMAKE_DL_LIBS})
+endif()
+
+set(ARROW_TEST_LINK_LIBS ${ARROW_MIN_TEST_LIBS})
 
 if (ARROW_JEMALLOC)
   add_definitions(-DARROW_JEMALLOC)
@@ -616,6 +692,9 @@ elseif (NOT MSVC)
   set(ARROW_LINK_LIBS
     ${ARROW_LINK_LIBS}
     ${PTHREAD_LIBRARY})
+  set(ARROW_STATIC_LINK_LIBS
+    ${ARROW_STATIC_LINK_LIBS}
+    ${PTHREAD_LIBRARY})
 endif()
 
 ############################################################
@@ -639,7 +718,6 @@ set(ARROW_SRCS
   src/arrow/buffer.cc
   src/arrow/builder.cc
   src/arrow/compare.cc
-  src/arrow/loader.cc
   src/arrow/memory_pool.cc
   src/arrow/pretty_print.cc
   src/arrow/status.cc
@@ -658,6 +736,31 @@ set(ARROW_SRCS
   src/arrow/util/decimal.cc
   src/arrow/util/key_value_metadata.cc
 )
+
+if (ARROW_WITH_BROTLI)
+  add_definitions(-DARROW_WITH_BROTLI)
+  SET(ARROW_SRCS src/arrow/util/compression_brotli.cc ${ARROW_SRCS})
+endif()
+
+if (ARROW_WITH_LZ4)
+  add_definitions(-DARROW_WITH_LZ4)
+  SET(ARROW_SRCS src/arrow/util/compression_lz4.cc ${ARROW_SRCS})
+endif()
+
+if (ARROW_WITH_SNAPPY)
+  add_definitions(-DARROW_WITH_SNAPPY)
+  SET(ARROW_SRCS src/arrow/util/compression_snappy.cc ${ARROW_SRCS})
+endif()
+
+if (ARROW_WITH_ZLIB)
+  add_definitions(-DARROW_WITH_ZLIB)
+  SET(ARROW_SRCS src/arrow/util/compression_zlib.cc ${ARROW_SRCS})
+endif()
+
+if (ARROW_WITH_ZSTD)
+  add_definitions(-DARROW_WITH_ZSTD)
+  SET(ARROW_SRCS src/arrow/util/compression_zstd.cc ${ARROW_SRCS})
+endif()
 
 if (NOT ARROW_BOOST_HEADER_ONLY)
   set(ARROW_SRCS ${ARROW_SRCS}
