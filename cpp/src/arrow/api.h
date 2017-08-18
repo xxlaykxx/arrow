@@ -24,7 +24,6 @@
 #include "arrow/buffer.h"
 #include "arrow/builder.h"
 #include "arrow/compare.h"
-#include "arrow/loader.h"
 #include "arrow/memory_pool.h"
 #include "arrow/pretty_print.h"
 #include "arrow/status.h"
@@ -32,5 +31,8 @@
 #include "arrow/tensor.h"
 #include "arrow/type.h"
 #include "arrow/visitor.h"
+
+/// \brief Top-level namespace for Apache Arrow C++ API
+namespace arrow {}
 
 #endif  // ARROW_API_H

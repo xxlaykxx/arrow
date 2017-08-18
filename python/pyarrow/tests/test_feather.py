@@ -1,16 +1,19 @@
-# Copyright 2016 Feather Developers
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+#   http://www.apache.org/licenses/LICENSE-2.0
 #
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
 import os
 import sys
@@ -294,6 +297,16 @@ class TestFeatherReader(unittest.TestCase):
         df = pd.DataFrame({'strings': [''] * 10})
         self._check_pandas_roundtrip(df)
 
+    def test_all_none(self):
+        df = pd.DataFrame({'all_none': [None] * 10})
+        self._check_pandas_roundtrip(df, null_counts=[10])
+
+    def test_all_null_category(self):
+        # ARROW-1188
+        df = pd.DataFrame({"A": (1, 2, 3), "B": (None, None, None)})
+        df = df.assign(B=df.B.astype("category"))
+        self._check_pandas_roundtrip(df, null_counts=[0, 3])
+
     def test_multithreaded_read(self):
         data = {'c{0}'.format(i): [''] * 10
                 for i in range(100)}
@@ -355,7 +368,8 @@ class TestFeatherReader(unittest.TestCase):
         expected = df.rename(columns=str)
         self._check_pandas_roundtrip(df, expected)
 
-    @pytest.mark.skipif(not os.path.supports_unicode_filenames, reason='unicode filenames not supported')
+    @pytest.mark.skipif(not os.path.supports_unicode_filenames,
+                        reason='unicode filenames not supported')
     def test_unicode_filename(self):
         # GH #209
         name = (b'Besa_Kavaj\xc3\xab.feather').decode('utf-8')

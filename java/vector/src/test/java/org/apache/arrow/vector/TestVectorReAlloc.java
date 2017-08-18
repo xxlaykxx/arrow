@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.arrow.vector;
 
 import static org.junit.Assert.assertEquals;
@@ -89,7 +90,7 @@ public class TestVectorReAlloc {
       }
 
       vector.reAlloc();
-      assertEquals(1023, vector.getValueCapacity()); // note: size - 1 for some reason...
+      assertEquals(1023, vector.getValueCapacity());
 
       m.set(512, "foo".getBytes(StandardCharsets.UTF_8));
       assertEquals("foo", new String(vector.getAccessor().get(512), StandardCharsets.UTF_8));

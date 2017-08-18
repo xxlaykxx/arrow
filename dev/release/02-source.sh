@@ -88,6 +88,8 @@ rm -rf ${tag}
 git archive $release_hash --prefix ${tag}/ | tar xf -
 rm -rf ${tag}/c_glib
 mv tmp-c_glib ${tag}/c_glib
+
+# Create new tarball from modified source directory
 tar czf ${tarball} ${tag}
 rm -rf ${tag}
 

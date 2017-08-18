@@ -19,31 +19,27 @@
 # distutils: language = c++
 # cython: embedsignature = True
 
+import datetime
+import decimal as _pydecimal
+import multiprocessing
+import numpy as np
+import os
+import six
+from pyarrow.compat import frombytes, tobytes, PandasSeries, Categorical
+
 from cython.operator cimport dereference as deref
 from pyarrow.includes.libarrow cimport *
 from pyarrow.includes.common cimport PyObject_to_object
 cimport pyarrow.includes.libarrow as libarrow
 cimport cpython as cp
 
-
-import datetime
-import decimal as _pydecimal
-import numpy as np
-import six
-from pyarrow.compat import frombytes, tobytes, PandasSeries, Categorical
-
 cdef _pandas():
     import pandas as pd
     return pd
 
-
 arrow_init_numpy()
-
-import numpy as np
 set_numpy_nan(np.nan)
 
-import multiprocessing
-import os
 cdef int CPU_COUNT = int(
     os.environ.get('OMP_NUM_THREADS',
                    max(multiprocessing.cpu_count() // 2, 1)))
@@ -62,9 +58,37 @@ def cpu_count():
     """
     return CPU_COUNT
 
+
 def set_cpu_count(count):
     global CPU_COUNT
     CPU_COUNT = max(int(count), 1)
+
+
+Type_NA = _Type_NA
+Type_BOOL = _Type_BOOL
+Type_UINT8 = _Type_UINT8
+Type_INT8 = _Type_INT8
+Type_UINT16 = _Type_UINT16
+Type_INT16 = _Type_INT16
+Type_UINT32 = _Type_UINT32
+Type_INT32 = _Type_INT32
+Type_UINT64 = _Type_UINT64
+Type_INT64 = _Type_INT64
+Type_HALF_FLOAT = _Type_HALF_FLOAT
+Type_FLOAT = _Type_FLOAT
+Type_DOUBLE = _Type_DOUBLE
+Type_DECIMAL = _Type_DECIMAL
+Type_DATE32 = _Type_DATE32
+Type_DATE64 = _Type_DATE64
+Type_TIMESTAMP = _Type_TIMESTAMP
+Type_TIME32 = _Type_TIME32
+Type_TIME64 = _Type_TIME64
+Type_BINARY = _Type_BINARY
+Type_STRING = _Type_STRING
+Type_FIXED_SIZE_BINARY = _Type_FIXED_SIZE_BINARY
+Type_LIST = _Type_LIST
+Type_STRUCT = _Type_STRUCT
+Type_DICTIONARY = _Type_DICTIONARY
 
 
 # Exception types
@@ -73,16 +97,27 @@ include "error.pxi"
 # Memory pools and allocation
 include "memory.pxi"
 
+# DataType, Field, Schema
+include "types.pxi"
+
+# Array scalar values
+include "scalar.pxi"
+
 # Array types
 include "array.pxi"
 
 # Column, Table, Record Batch
 include "table.pxi"
 
-# File IO, IPC
+# File IO
 include "io.pxi"
+include "io-hdfs.pxi"
 
-#----------------------------------------------------------------------
+# IPC / Messaging
+include "ipc.pxi"
+
+# Feather format
+include "feather.pxi"
+
 # Public API
-
 include "public-api.pxi"

@@ -43,8 +43,12 @@ ChunkedArray::ChunkedArray(const ArrayVector& chunks) : chunks_(chunks) {
 }
 
 bool ChunkedArray::Equals(const ChunkedArray& other) const {
-  if (length_ != other.length()) { return false; }
-  if (null_count_ != other.null_count()) { return false; }
+  if (length_ != other.length()) {
+    return false;
+  }
+  if (null_count_ != other.null_count()) {
+    return false;
+  }
 
   // Check contents of the underlying arrays. This checks for equality of
   // the underlying data independently of the chunk size.
@@ -57,10 +61,10 @@ bool ChunkedArray::Equals(const ChunkedArray& other) const {
   while (elements_compared < length_) {
     const std::shared_ptr<Array> this_array = chunks_[this_chunk_idx];
     const std::shared_ptr<Array> other_array = other.chunk(other_chunk_idx);
-    int64_t common_length = std::min(
-        this_array->length() - this_start_idx, other_array->length() - other_start_idx);
+    int64_t common_length = std::min(this_array->length() - this_start_idx,
+                                     other_array->length() - other_start_idx);
     if (!this_array->RangeEquals(this_start_idx, this_start_idx + common_length,
-            other_start_idx, other_array)) {
+                                 other_start_idx, other_array)) {
       return false;
     }
 
@@ -85,8 +89,12 @@ bool ChunkedArray::Equals(const ChunkedArray& other) const {
 }
 
 bool ChunkedArray::Equals(const std::shared_ptr<ChunkedArray>& other) const {
-  if (this == other.get()) { return true; }
-  if (!other) { return false; }
+  if (this == other.get()) {
+    return true;
+  }
+  if (!other) {
+    return false;
+  }
   return Equals(*other.get());
 }
 
@@ -107,18 +115,24 @@ Column::Column(const std::shared_ptr<Field>& field, const std::shared_ptr<Array>
 Column::Column(const std::string& name, const std::shared_ptr<Array>& data)
     : Column(::arrow::field(name, data->type()), data) {}
 
-Column::Column(
-    const std::shared_ptr<Field>& field, const std::shared_ptr<ChunkedArray>& data)
+Column::Column(const std::shared_ptr<Field>& field,
+               const std::shared_ptr<ChunkedArray>& data)
     : field_(field), data_(data) {}
 
 bool Column::Equals(const Column& other) const {
-  if (!field_->Equals(other.field())) { return false; }
+  if (!field_->Equals(other.field())) {
+    return false;
+  }
   return data_->Equals(other.data());
 }
 
 bool Column::Equals(const std::shared_ptr<Column>& other) const {
-  if (this == other.get()) { return true; }
-  if (!other) { return false; }
+  if (this == other.get()) {
+    return true;
+  }
+  if (!other) {
+    return false;
+  }
 
   return Equals(*other.get());
 }
@@ -141,16 +155,40 @@ Status Column::ValidateData() {
 
 void AssertBatchValid(const RecordBatch& batch) {
   Status s = batch.Validate();
-  if (!s.ok()) { DCHECK(false) << s.ToString(); }
+  if (!s.ok()) {
+    DCHECK(false) << s.ToString();
+  }
 }
 
 RecordBatch::RecordBatch(const std::shared_ptr<Schema>& schema, int64_t num_rows,
-    const std::vector<std::shared_ptr<Array>>& columns)
-    : schema_(schema), num_rows_(num_rows), columns_(columns) {}
+                         const std::vector<std::shared_ptr<Array>>& columns)
+    : schema_(schema), num_rows_(num_rows), columns_(columns.size()) {
+  for (size_t i = 0; i < columns.size(); ++i) {
+    columns_[i] = columns[i]->data();
+  }
+}
 
 RecordBatch::RecordBatch(const std::shared_ptr<Schema>& schema, int64_t num_rows,
-    std::vector<std::shared_ptr<Array>>&& columns)
+                         std::vector<std::shared_ptr<Array>>&& columns)
+    : schema_(schema), num_rows_(num_rows), columns_(columns.size()) {
+  for (size_t i = 0; i < columns.size(); ++i) {
+    columns_[i] = columns[i]->data();
+  }
+}
+
+RecordBatch::RecordBatch(const std::shared_ptr<Schema>& schema, int64_t num_rows,
+                         std::vector<std::shared_ptr<internal::ArrayData>>&& columns)
     : schema_(schema), num_rows_(num_rows), columns_(std::move(columns)) {}
+
+RecordBatch::RecordBatch(const std::shared_ptr<Schema>& schema, int64_t num_rows,
+                         const std::vector<std::shared_ptr<internal::ArrayData>>& columns)
+    : schema_(schema), num_rows_(num_rows), columns_(columns) {}
+
+std::shared_ptr<Array> RecordBatch::column(int i) const {
+  std::shared_ptr<Array> result;
+  DCHECK(MakeArray(columns_[i], &result).ok());
+  return result;
+}
 
 const std::string& RecordBatch::column_name(int i) const {
   return schema_->field(i)->name();
@@ -162,7 +200,9 @@ bool RecordBatch::Equals(const RecordBatch& other) const {
   }
 
   for (int i = 0; i < num_columns(); ++i) {
-    if (!column(i)->Equals(other.column(i))) { return false; }
+    if (!column(i)->Equals(other.column(i))) {
+      return false;
+    }
   }
 
   return true;
@@ -174,10 +214,18 @@ bool RecordBatch::ApproxEquals(const RecordBatch& other) const {
   }
 
   for (int i = 0; i < num_columns(); ++i) {
-    if (!column(i)->ApproxEquals(other.column(i))) { return false; }
+    if (!column(i)->ApproxEquals(other.column(i))) {
+      return false;
+    }
   }
 
   return true;
+}
+
+std::shared_ptr<RecordBatch> RecordBatch::ReplaceSchemaMetadata(
+    const std::shared_ptr<const KeyValueMetadata>& metadata) const {
+  auto new_schema = schema_->AddMetadata(metadata);
+  return std::make_shared<RecordBatch>(new_schema, num_rows_, columns_);
 }
 
 std::shared_ptr<RecordBatch> RecordBatch::Slice(int64_t offset) const {
@@ -185,30 +233,36 @@ std::shared_ptr<RecordBatch> RecordBatch::Slice(int64_t offset) const {
 }
 
 std::shared_ptr<RecordBatch> RecordBatch::Slice(int64_t offset, int64_t length) const {
-  std::vector<std::shared_ptr<Array>> arrays;
+  std::vector<std::shared_ptr<internal::ArrayData>> arrays;
   arrays.reserve(num_columns());
   for (const auto& field : columns_) {
-    arrays.emplace_back(field->Slice(offset, length));
-  }
+    int64_t col_length = std::min(field->length - offset, length);
+    int64_t col_offset = field->offset + offset;
 
+    auto new_data = std::make_shared<internal::ArrayData>(*field);
+    new_data->length = col_length;
+    new_data->offset = col_offset;
+    new_data->null_count = kUnknownNullCount;
+    arrays.emplace_back(new_data);
+  }
   int64_t num_rows = std::min(num_rows_ - offset, length);
-  return std::make_shared<RecordBatch>(schema_, num_rows, arrays);
+  return std::make_shared<RecordBatch>(schema_, num_rows, std::move(arrays));
 }
 
 Status RecordBatch::Validate() const {
   for (int i = 0; i < num_columns(); ++i) {
-    const Array& arr = *columns_[i];
-    if (arr.length() != num_rows_) {
+    const internal::ArrayData& arr = *columns_[i];
+    if (arr.length != num_rows_) {
       std::stringstream ss;
-      ss << "Number of rows in column " << i << " did not match batch: " << arr.length()
+      ss << "Number of rows in column " << i << " did not match batch: " << arr.length
          << " vs " << num_rows_;
       return Status::Invalid(ss.str());
     }
     const auto& schema_type = *schema_->field(i)->type();
-    if (!arr.type()->Equals(schema_type)) {
+    if (!arr.type->Equals(schema_type)) {
       std::stringstream ss;
-      ss << "Column " << i << " type not match schema: " << arr.type()->ToString()
-         << " vs " << schema_type.ToString();
+      ss << "Column " << i << " type not match schema: " << arr.type->ToString() << " vs "
+         << schema_type.ToString();
       return Status::Invalid(ss.str());
     }
   }
@@ -219,21 +273,47 @@ Status RecordBatch::Validate() const {
 // Table methods
 
 Table::Table(const std::shared_ptr<Schema>& schema,
-    const std::vector<std::shared_ptr<Column>>& columns)
+             const std::vector<std::shared_ptr<Column>>& columns, int64_t num_rows)
     : schema_(schema), columns_(columns) {
-  if (columns.size() == 0) {
-    num_rows_ = 0;
+  if (num_rows < 0) {
+    if (columns.size() == 0) {
+      num_rows_ = 0;
+    } else {
+      num_rows_ = columns[0]->length();
+    }
   } else {
-    num_rows_ = columns[0]->length();
+    num_rows_ = num_rows;
   }
 }
 
 Table::Table(const std::shared_ptr<Schema>& schema,
-    const std::vector<std::shared_ptr<Column>>& columns, int64_t num_rows)
-    : schema_(schema), columns_(columns), num_rows_(num_rows) {}
+             const std::vector<std::shared_ptr<Array>>& columns, int64_t num_rows)
+    : schema_(schema) {
+  if (num_rows < 0) {
+    if (columns.size() == 0) {
+      num_rows_ = 0;
+    } else {
+      num_rows_ = columns[0]->length();
+    }
+  } else {
+    num_rows_ = num_rows;
+  }
+
+  columns_.resize(columns.size());
+  for (size_t i = 0; i < columns.size(); ++i) {
+    columns_[i] =
+        std::make_shared<Column>(schema->field(static_cast<int>(i)), columns[i]);
+  }
+}
+
+std::shared_ptr<Table> Table::ReplaceSchemaMetadata(
+    const std::shared_ptr<const KeyValueMetadata>& metadata) const {
+  auto new_schema = schema_->AddMetadata(metadata);
+  return std::make_shared<Table>(new_schema, columns_);
+}
 
 Status Table::FromRecordBatches(const std::vector<std::shared_ptr<RecordBatch>>& batches,
-    std::shared_ptr<Table>* table) {
+                                std::shared_ptr<Table>* table) {
   if (batches.size() == 0) {
     return Status::Invalid("Must pass at least one record batch");
   }
@@ -267,9 +347,11 @@ Status Table::FromRecordBatches(const std::vector<std::shared_ptr<RecordBatch>>&
   return Status::OK();
 }
 
-Status ConcatenateTables(
-    const std::vector<std::shared_ptr<Table>>& tables, std::shared_ptr<Table>* table) {
-  if (tables.size() == 0) { return Status::Invalid("Must pass at least one table"); }
+Status ConcatenateTables(const std::vector<std::shared_ptr<Table>>& tables,
+                         std::shared_ptr<Table>* table) {
+  if (tables.size() == 0) {
+    return Status::Invalid("Must pass at least one table");
+  }
 
   std::shared_ptr<Schema> schema = tables[0]->schema();
 
@@ -303,12 +385,20 @@ Status ConcatenateTables(
 }
 
 bool Table::Equals(const Table& other) const {
-  if (this == &other) { return true; }
-  if (!schema_->Equals(*other.schema())) { return false; }
-  if (static_cast<int64_t>(columns_.size()) != other.num_columns()) { return false; }
+  if (this == &other) {
+    return true;
+  }
+  if (!schema_->Equals(*other.schema())) {
+    return false;
+  }
+  if (static_cast<int64_t>(columns_.size()) != other.num_columns()) {
+    return false;
+  }
 
   for (int i = 0; i < static_cast<int>(columns_.size()); i++) {
-    if (!columns_[i]->Equals(other.column(i))) { return false; }
+    if (!columns_[i]->Equals(other.column(i))) {
+      return false;
+    }
   }
   return true;
 }
@@ -317,13 +407,15 @@ Status Table::RemoveColumn(int i, std::shared_ptr<Table>* out) const {
   std::shared_ptr<Schema> new_schema;
   RETURN_NOT_OK(schema_->RemoveField(i, &new_schema));
 
-  *out = std::make_shared<Table>(new_schema, DeleteVectorElement(columns_, i));
+  *out = std::make_shared<Table>(new_schema, internal::DeleteVectorElement(columns_, i));
   return Status::OK();
 }
 
-Status Table::AddColumn(
-    int i, const std::shared_ptr<Column>& col, std::shared_ptr<Table>* out) const {
-  if (i < 0 || i > num_columns() + 1) { return Status::Invalid("Invalid column index."); }
+Status Table::AddColumn(int i, const std::shared_ptr<Column>& col,
+                        std::shared_ptr<Table>* out) const {
+  if (i < 0 || i > num_columns() + 1) {
+    return Status::Invalid("Invalid column index.");
+  }
   if (col == nullptr) {
     std::stringstream ss;
     ss << "Column " << i << " was null";
@@ -339,7 +431,8 @@ Status Table::AddColumn(
   std::shared_ptr<Schema> new_schema;
   RETURN_NOT_OK(schema_->AddField(i, col->field(), &new_schema));
 
-  *out = std::make_shared<Table>(new_schema, AddVectorElement(columns_, i, col));
+  *out =
+      std::make_shared<Table>(new_schema, internal::AddVectorElement(columns_, i, col));
   return Status::OK();
 }
 
@@ -367,7 +460,8 @@ Status Table::ValidateColumns() const {
 }
 
 Status ARROW_EXPORT MakeTable(const std::shared_ptr<Schema>& schema,
-    const std::vector<std::shared_ptr<Array>>& arrays, std::shared_ptr<Table>* table) {
+                              const std::vector<std::shared_ptr<Array>>& arrays,
+                              std::shared_ptr<Table>* table) {
   // Make sure the length of the schema corresponds to the length of the vector
   if (schema->num_fields() != static_cast<int>(arrays.size())) {
     std::stringstream ss;

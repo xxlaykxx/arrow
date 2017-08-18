@@ -64,25 +64,30 @@ TEST_F(TestArray, TestLength) {
   ASSERT_EQ(arr->length(), 100);
 }
 
-std::shared_ptr<Array> MakeArrayFromValidBytes(
-    const vector<uint8_t>& v, MemoryPool* pool) {
+Status MakeArrayFromValidBytes(const vector<uint8_t>& v, MemoryPool* pool,
+                               std::shared_ptr<Array>* out) {
   int64_t null_count = v.size() - std::accumulate(v.begin(), v.end(), 0);
-  std::shared_ptr<Buffer> null_buf = test::bytes_to_null_buffer(v);
 
-  BufferBuilder value_builder(pool);
+  std::shared_ptr<Buffer> null_buf;
+  RETURN_NOT_OK(BitUtil::BytesToBits(v, &null_buf));
+
+  TypedBufferBuilder<int32_t> value_builder(pool);
   for (size_t i = 0; i < v.size(); ++i) {
-    value_builder.Append<int32_t>(0);
+    RETURN_NOT_OK(value_builder.Append(0));
   }
 
-  std::shared_ptr<Array> arr(
-      new Int32Array(v.size(), value_builder.Finish(), null_buf, null_count));
-  return arr;
+  std::shared_ptr<Buffer> values;
+  RETURN_NOT_OK(value_builder.Finish(&values));
+  *out = std::make_shared<Int32Array>(v.size(), values, null_buf, null_count);
+  return Status::OK();
 }
 
 TEST_F(TestArray, TestEquality) {
-  auto array = MakeArrayFromValidBytes({1, 0, 1, 1, 0, 1, 0, 0}, pool_);
-  auto equal_array = MakeArrayFromValidBytes({1, 0, 1, 1, 0, 1, 0, 0}, pool_);
-  auto unequal_array = MakeArrayFromValidBytes({1, 1, 1, 1, 0, 1, 0, 0}, pool_);
+  std::shared_ptr<Array> array, equal_array, unequal_array;
+
+  ASSERT_OK(MakeArrayFromValidBytes({1, 0, 1, 1, 0, 1, 0, 0}, pool_, &array));
+  ASSERT_OK(MakeArrayFromValidBytes({1, 0, 1, 1, 0, 1, 0, 0}, pool_, &equal_array));
+  ASSERT_OK(MakeArrayFromValidBytes({1, 1, 1, 1, 0, 1, 0, 0}, pool_, &unequal_array));
 
   EXPECT_TRUE(array->Equals(array));
   EXPECT_TRUE(array->Equals(equal_array));
@@ -108,7 +113,8 @@ TEST_F(TestArray, TestNullArrayEquality) {
 TEST_F(TestArray, SliceRecomputeNullCount) {
   vector<uint8_t> valid_bytes = {1, 0, 1, 1, 0, 1, 0, 0, 0};
 
-  auto array = MakeArrayFromValidBytes(valid_bytes, pool_);
+  std::shared_ptr<Array> array;
+  ASSERT_OK(MakeArrayFromValidBytes(valid_bytes, pool_, &array));
 
   ASSERT_EQ(5, array->null_count());
 
@@ -141,10 +147,14 @@ TEST_F(TestArray, TestIsNull) {
   // clang-format on
   int64_t null_count = 0;
   for (uint8_t x : null_bitmap) {
-    if (x == 0) { ++null_count; }
+    if (x == 0) {
+      ++null_count;
+    }
   }
 
-  std::shared_ptr<Buffer> null_buf = test::bytes_to_null_buffer(null_bitmap);
+  std::shared_ptr<Buffer> null_buf;
+  ASSERT_OK(BitUtil::BytesToBits(null_bitmap, &null_buf));
+
   std::unique_ptr<Array> arr;
   arr.reset(new Int32Array(null_bitmap.size(), nullptr, null_buf, null_count));
 
@@ -161,7 +171,7 @@ TEST_F(TestArray, TestIsNull) {
 TEST_F(TestArray, BuildLargeInMemoryArray) {
   const int64_t length = static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1;
 
-  BooleanBuilder builder(default_memory_pool());
+  BooleanBuilder builder;
   ASSERT_OK(builder.Reserve(length));
   ASSERT_OK(builder.Advance(length));
 
@@ -177,10 +187,10 @@ TEST_F(TestArray, TestCopy) {}
 // Primitive type tests
 
 TEST_F(TestBuilder, TestReserve) {
-  builder_->Init(10);
+  ASSERT_OK(builder_->Init(10));
   ASSERT_EQ(2, builder_->null_bitmap()->size());
 
-  builder_->Reserve(30);
+  ASSERT_OK(builder_->Reserve(30));
   ASSERT_EQ(4, builder_->null_bitmap()->size());
 }
 
@@ -197,12 +207,12 @@ class TestPrimitiveBuilder : public TestBuilder {
 
     type_ = Attrs::type();
 
-    std::shared_ptr<ArrayBuilder> tmp;
+    std::unique_ptr<ArrayBuilder> tmp;
     ASSERT_OK(MakeBuilder(pool_, type_, &tmp));
-    builder_ = std::dynamic_pointer_cast<BuilderType>(tmp);
+    builder_.reset(static_cast<BuilderType*>(tmp.release()));
 
     ASSERT_OK(MakeBuilder(pool_, type_, &tmp));
-    builder_nn_ = std::dynamic_pointer_cast<BuilderType>(tmp);
+    builder_nn_.reset(static_cast<BuilderType*>(tmp.release()));
   }
 
   void RandomData(int64_t N, double pct_null = 0.1) {
@@ -212,17 +222,17 @@ class TestPrimitiveBuilder : public TestBuilder {
     test::random_null_bytes(N, pct_null, valid_bytes_.data());
   }
 
-  void Check(const std::shared_ptr<BuilderType>& builder, bool nullable) {
+  void Check(const std::unique_ptr<BuilderType>& builder, bool nullable) {
     int64_t size = builder->length();
 
-    auto ex_data = std::make_shared<Buffer>(
-        reinterpret_cast<uint8_t*>(draws_.data()), size * sizeof(T));
+    auto ex_data = std::make_shared<Buffer>(reinterpret_cast<uint8_t*>(draws_.data()),
+                                            size * sizeof(T));
 
     std::shared_ptr<Buffer> ex_null_bitmap;
     int64_t ex_null_count = 0;
 
     if (nullable) {
-      ex_null_bitmap = test::bytes_to_null_buffer(valid_bytes_);
+      ASSERT_OK(BitUtil::BytesToBits(valid_bytes_, &ex_null_bitmap));
       ex_null_count = test::null_count(valid_bytes_);
     } else {
       ex_null_bitmap = nullptr;
@@ -248,8 +258,8 @@ class TestPrimitiveBuilder : public TestBuilder {
 
  protected:
   std::shared_ptr<DataType> type_;
-  std::shared_ptr<BuilderType> builder_;
-  std::shared_ptr<BuilderType> builder_nn_;
+  std::unique_ptr<BuilderType> builder_;
+  std::unique_ptr<BuilderType> builder_nn_;
 
   vector<T> draws_;
   vector<uint8_t> valid_bytes_;
@@ -308,17 +318,18 @@ void TestPrimitiveBuilder<PBoolean>::RandomData(int64_t N, double pct_null) {
 }
 
 template <>
-void TestPrimitiveBuilder<PBoolean>::Check(
-    const std::shared_ptr<BooleanBuilder>& builder, bool nullable) {
+void TestPrimitiveBuilder<PBoolean>::Check(const std::unique_ptr<BooleanBuilder>& builder,
+                                           bool nullable) {
   int64_t size = builder->length();
 
-  auto ex_data = test::bytes_to_null_buffer(draws_);
+  std::shared_ptr<Buffer> ex_data;
+  ASSERT_OK(BitUtil::BytesToBits(draws_, &ex_data));
 
   std::shared_ptr<Buffer> ex_null_bitmap;
   int64_t ex_null_count = 0;
 
   if (nullable) {
-    ex_null_bitmap = test::bytes_to_null_buffer(valid_bytes_);
+    ASSERT_OK(BitUtil::BytesToBits(valid_bytes_, &ex_null_bitmap));
     ex_null_count = test::null_count(valid_bytes_);
   } else {
     ex_null_bitmap = nullptr;
@@ -342,15 +353,17 @@ void TestPrimitiveBuilder<PBoolean>::Check(
   ASSERT_EQ(expected->length(), result->length());
 
   for (int64_t i = 0; i < result->length(); ++i) {
-    if (nullable) { ASSERT_EQ(valid_bytes_[i] == 0, result->IsNull(i)) << i; }
-    bool actual = BitUtil::GetBit(result->data()->data(), i);
+    if (nullable) {
+      ASSERT_EQ(valid_bytes_[i] == 0, result->IsNull(i)) << i;
+    }
+    bool actual = BitUtil::GetBit(result->values()->data(), i);
     ASSERT_EQ(draws_[i] != 0, actual) << i;
   }
   ASSERT_TRUE(result->Equals(*expected));
 }
 
 typedef ::testing::Types<PBoolean, PUInt8, PUInt16, PUInt32, PUInt64, PInt8, PInt16,
-    PInt32, PInt64, PFloat, PDouble>
+                         PInt32, PInt64, PFloat, PDouble>
     Primitives;
 
 TYPED_TEST_CASE(TestPrimitiveBuilder, Primitives);
@@ -368,7 +381,7 @@ TYPED_TEST(TestPrimitiveBuilder, TestInit) {
   ASSERT_OK(this->builder_->Reserve(n));
   ASSERT_EQ(BitUtil::NextPower2(n), this->builder_->capacity());
   ASSERT_EQ(BitUtil::NextPower2(TypeTraits<Type>::bytes_required(n)),
-      this->builder_->data()->size());
+            this->builder_->data()->size());
 
   // unsure if this should go in all builder classes
   ASSERT_EQ(0, this->builder_->num_children());
@@ -399,15 +412,14 @@ TYPED_TEST(TestPrimitiveBuilder, TestArrayDtorDealloc) {
   int64_t memory_before = this->pool_->bytes_allocated();
 
   this->RandomData(size);
-
-  this->builder_->Reserve(size);
+  ASSERT_OK(this->builder_->Reserve(size));
 
   int64_t i;
   for (i = 0; i < size; ++i) {
     if (valid_bytes[i] > 0) {
-      this->builder_->Append(draws[i]);
+      ASSERT_OK(this->builder_->Append(draws[i]));
     } else {
-      this->builder_->AppendNull();
+      ASSERT_OK(this->builder_->AppendNull());
     }
   }
 
@@ -432,8 +444,8 @@ TYPED_TEST(TestPrimitiveBuilder, Equality) {
   ASSERT_OK(MakeArray(valid_bytes, draws, size, builder, &equal_array));
 
   // Make the not equal array by negating the first valid element with itself.
-  const auto first_valid = std::find_if(
-      valid_bytes.begin(), valid_bytes.end(), [](uint8_t valid) { return valid > 0; });
+  const auto first_valid = std::find_if(valid_bytes.begin(), valid_bytes.end(),
+                                        [](uint8_t valid) { return valid > 0; });
   const int64_t first_valid_idx = std::distance(valid_bytes.begin(), first_valid);
   // This should be true with a very high probability, but might introduce flakiness
   ASSERT_LT(first_valid_idx, size - 1);
@@ -499,19 +511,19 @@ TYPED_TEST(TestPrimitiveBuilder, TestAppendScalar) {
 
   this->RandomData(size);
 
-  this->builder_->Reserve(1000);
-  this->builder_nn_->Reserve(1000);
+  ASSERT_OK(this->builder_->Reserve(1000));
+  ASSERT_OK(this->builder_nn_->Reserve(1000));
 
   int64_t null_count = 0;
   // Append the first 1000
   for (size_t i = 0; i < 1000; ++i) {
     if (valid_bytes[i] > 0) {
-      this->builder_->Append(draws[i]);
+      ASSERT_OK(this->builder_->Append(draws[i]));
     } else {
-      this->builder_->AppendNull();
+      ASSERT_OK(this->builder_->AppendNull());
       ++null_count;
     }
-    this->builder_nn_->Append(draws[i]);
+    ASSERT_OK(this->builder_nn_->Append(draws[i]));
   }
 
   ASSERT_EQ(null_count, this->builder_->null_count());
@@ -522,17 +534,17 @@ TYPED_TEST(TestPrimitiveBuilder, TestAppendScalar) {
   ASSERT_EQ(1000, this->builder_nn_->length());
   ASSERT_EQ(1024, this->builder_nn_->capacity());
 
-  this->builder_->Reserve(size - 1000);
-  this->builder_nn_->Reserve(size - 1000);
+  ASSERT_OK(this->builder_->Reserve(size - 1000));
+  ASSERT_OK(this->builder_nn_->Reserve(size - 1000));
 
   // Append the next 9000
   for (size_t i = 1000; i < size; ++i) {
     if (valid_bytes[i] > 0) {
-      this->builder_->Append(draws[i]);
+      ASSERT_OK(this->builder_->Append(draws[i]));
     } else {
-      this->builder_->AppendNull();
+      ASSERT_OK(this->builder_->AppendNull());
     }
-    this->builder_nn_->Append(draws[i]);
+    ASSERT_OK(this->builder_nn_->Append(draws[i]));
   }
 
   ASSERT_EQ(size, this->builder_->length());
@@ -668,11 +680,11 @@ class TestStringArray : public ::testing::Test {
     length_ = static_cast<int64_t>(offsets_.size()) - 1;
     value_buf_ = test::GetBufferFromVector(chars_);
     offsets_buf_ = test::GetBufferFromVector(offsets_);
-    null_bitmap_ = test::bytes_to_null_buffer(valid_bytes_);
+    ASSERT_OK(BitUtil::BytesToBits(valid_bytes_, &null_bitmap_));
     null_count_ = test::null_count(valid_bytes_);
 
-    strings_ = std::make_shared<StringArray>(
-        length_, offsets_buf_, value_buf_, null_bitmap_, null_count_);
+    strings_ = std::make_shared<StringArray>(length_, offsets_buf_, value_buf_,
+                                             null_bitmap_, null_count_);
   }
 
  protected:
@@ -715,8 +727,8 @@ TEST_F(TestStringArray, TestListFunctions) {
 }
 
 TEST_F(TestStringArray, TestDestructor) {
-  auto arr = std::make_shared<StringArray>(
-      length_, offsets_buf_, value_buf_, null_bitmap_, null_count_);
+  auto arr = std::make_shared<StringArray>(length_, offsets_buf_, value_buf_,
+                                           null_bitmap_, null_count_);
 }
 
 TEST_F(TestStringArray, TestGetString) {
@@ -734,31 +746,31 @@ TEST_F(TestStringArray, TestEmptyStringComparison) {
   offsets_buf_ = test::GetBufferFromVector(offsets_);
   length_ = static_cast<int64_t>(offsets_.size() - 1);
 
-  auto strings_a = std::make_shared<StringArray>(
-      length_, offsets_buf_, nullptr, null_bitmap_, null_count_);
-  auto strings_b = std::make_shared<StringArray>(
-      length_, offsets_buf_, nullptr, null_bitmap_, null_count_);
+  auto strings_a = std::make_shared<StringArray>(length_, offsets_buf_, nullptr,
+                                                 null_bitmap_, null_count_);
+  auto strings_b = std::make_shared<StringArray>(length_, offsets_buf_, nullptr,
+                                                 null_bitmap_, null_count_);
   ASSERT_TRUE(strings_a->Equals(strings_b));
 }
 
 TEST_F(TestStringArray, CompareNullByteSlots) {
-  StringBuilder builder(default_memory_pool());
-  StringBuilder builder2(default_memory_pool());
-  StringBuilder builder3(default_memory_pool());
+  StringBuilder builder;
+  StringBuilder builder2;
+  StringBuilder builder3;
 
-  builder.Append("foo");
-  builder2.Append("foo");
-  builder3.Append("foo");
+  ASSERT_OK(builder.Append("foo"));
+  ASSERT_OK(builder2.Append("foo"));
+  ASSERT_OK(builder3.Append("foo"));
 
-  builder.Append("bar");
-  builder2.AppendNull();
+  ASSERT_OK(builder.Append("bar"));
+  ASSERT_OK(builder2.AppendNull());
 
   // same length, but different
-  builder3.Append("xyz");
+  ASSERT_OK(builder3.Append("xyz"));
 
-  builder.Append("baz");
-  builder2.Append("baz");
-  builder3.Append("baz");
+  ASSERT_OK(builder.Append("baz"));
+  ASSERT_OK(builder2.Append("baz"));
+  ASSERT_OK(builder3.Append("baz"));
 
   std::shared_ptr<Array> array, array2, array3;
   ASSERT_OK(builder.Finish(&array));
@@ -771,8 +783,8 @@ TEST_F(TestStringArray, CompareNullByteSlots) {
 
   // The validity bitmaps are the same, the data is different, but the unequal
   // portion is masked out
-  StringArray equal_array(3, a1.value_offsets(), a1.data(), a2.null_bitmap(), 1);
-  StringArray equal_array2(3, a3.value_offsets(), a3.data(), a2.null_bitmap(), 1);
+  StringArray equal_array(3, a1.value_offsets(), a1.value_data(), a2.null_bitmap(), 1);
+  StringArray equal_array2(3, a3.value_offsets(), a3.value_data(), a2.null_bitmap(), 1);
 
   ASSERT_TRUE(equal_array.Equals(equal_array2));
   ASSERT_TRUE(a2.RangeEquals(equal_array2, 0, 3, 0));
@@ -783,11 +795,11 @@ TEST_F(TestStringArray, CompareNullByteSlots) {
 }
 
 TEST_F(TestStringArray, TestSliceGetString) {
-  StringBuilder builder(default_memory_pool());
+  StringBuilder builder;
 
-  builder.Append("a");
-  builder.Append("b");
-  builder.Append("c");
+  ASSERT_OK(builder.Append("a"));
+  ASSERT_OK(builder.Append("b"));
+  ASSERT_OK(builder.Append("c"));
 
   std::shared_ptr<Array> array;
   ASSERT_OK(builder.Finish(&array));
@@ -829,9 +841,9 @@ TEST_F(TestStringBuilder, TestScalarAppend) {
   for (int j = 0; j < reps; ++j) {
     for (int i = 0; i < N; ++i) {
       if (is_null[i]) {
-        builder_->AppendNull();
+        ASSERT_OK(builder_->AppendNull());
       } else {
-        builder_->Append(strings[i]);
+        ASSERT_OK(builder_->Append(strings[i]));
       }
     }
   }
@@ -839,7 +851,7 @@ TEST_F(TestStringBuilder, TestScalarAppend) {
 
   ASSERT_EQ(reps * N, result_->length());
   ASSERT_EQ(reps, result_->null_count());
-  ASSERT_EQ(reps * 6, result_->data()->size());
+  ASSERT_EQ(reps * 6, result_->value_data()->size());
 
   int32_t length;
   int32_t pos = 0;
@@ -882,11 +894,11 @@ class TestBinaryArray : public ::testing::Test {
     value_buf_ = test::GetBufferFromVector(chars_);
     offsets_buf_ = test::GetBufferFromVector(offsets_);
 
-    null_bitmap_ = test::bytes_to_null_buffer(valid_bytes_);
+    ASSERT_OK(BitUtil::BytesToBits(valid_bytes_, &null_bitmap_));
     null_count_ = test::null_count(valid_bytes_);
 
-    strings_ = std::make_shared<BinaryArray>(
-        length_, offsets_buf_, value_buf_, null_bitmap_, null_count_);
+    strings_ = std::make_shared<BinaryArray>(length_, offsets_buf_, value_buf_,
+                                             null_bitmap_, null_count_);
   }
 
  protected:
@@ -929,8 +941,8 @@ TEST_F(TestBinaryArray, TestListFunctions) {
 }
 
 TEST_F(TestBinaryArray, TestDestructor) {
-  auto arr = std::make_shared<BinaryArray>(
-      length_, offsets_buf_, value_buf_, null_bitmap_, null_count_);
+  auto arr = std::make_shared<BinaryArray>(length_, offsets_buf_, value_buf_,
+                                           null_bitmap_, null_count_);
 }
 
 TEST_F(TestBinaryArray, TestGetValue) {
@@ -946,22 +958,20 @@ TEST_F(TestBinaryArray, TestGetValue) {
 }
 
 TEST_F(TestBinaryArray, TestEqualsEmptyStrings) {
-  BinaryBuilder builder(default_memory_pool(), arrow::binary());
+  BinaryBuilder builder;
 
   string empty_string("");
-
-  builder.Append(empty_string);
-  builder.Append(empty_string);
-  builder.Append(empty_string);
-  builder.Append(empty_string);
-  builder.Append(empty_string);
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(builder.Append(empty_string));
+  }
 
   std::shared_ptr<Array> left_arr;
   ASSERT_OK(builder.Finish(&left_arr));
 
   const BinaryArray& left = static_cast<const BinaryArray&>(*left_arr);
-  std::shared_ptr<Array> right = std::make_shared<BinaryArray>(left.length(),
-      left.value_offsets(), nullptr, left.null_bitmap(), left.null_count());
+  std::shared_ptr<Array> right =
+      std::make_shared<BinaryArray>(left.length(), left.value_offsets(), nullptr,
+                                    left.null_bitmap(), left.null_count());
 
   ASSERT_TRUE(left.Equals(right));
   ASSERT_TRUE(left.RangeEquals(0, left.length(), 0, right));
@@ -992,14 +1002,14 @@ TEST_F(TestBinaryBuilder, TestScalarAppend) {
   vector<uint8_t> is_null = {0, 0, 0, 1, 0};
 
   int N = static_cast<int>(strings.size());
-  int reps = 1000;
+  int reps = 10;
 
   for (int j = 0; j < reps; ++j) {
     for (int i = 0; i < N; ++i) {
       if (is_null[i]) {
-        builder_->AppendNull();
+        ASSERT_OK(builder_->AppendNull());
       } else {
-        builder_->Append(strings[i]);
+        ASSERT_OK(builder_->Append(strings[i]));
       }
     }
   }
@@ -1007,7 +1017,7 @@ TEST_F(TestBinaryBuilder, TestScalarAppend) {
   ASSERT_OK(ValidateArray(*result_));
   ASSERT_EQ(reps * N, result_->length());
   ASSERT_EQ(reps, result_->null_count());
-  ASSERT_EQ(reps * 6, result_->data()->size());
+  ASSERT_EQ(reps * 6, result_->value_data()->size());
 
   int32_t length;
   for (int i = 0; i < N * reps; ++i) {
@@ -1035,7 +1045,7 @@ void CheckSliceEquality() {
   using Traits = TypeTraits<TYPE>;
   using BuilderType = typename Traits::BuilderType;
 
-  BuilderType builder(default_memory_pool());
+  BuilderType builder;
 
   vector<string> strings = {"foo", "", "bar", "baz", "qux", ""};
   vector<uint8_t> is_null = {0, 1, 0, 1, 0, 0};
@@ -1046,9 +1056,9 @@ void CheckSliceEquality() {
   for (int j = 0; j < reps; ++j) {
     for (int i = 0; i < N; ++i) {
       if (is_null[i]) {
-        builder.AppendNull();
+        ASSERT_OK(builder.AppendNull());
       } else {
-        builder.Append(strings[i]);
+        ASSERT_OK(builder.Append(strings[i]));
       }
     }
   }
@@ -1077,17 +1087,11 @@ void CheckSliceEquality() {
   ASSERT_TRUE(array->RangeEquals(5, 25, 0, slice));
 }
 
-TEST_F(TestBinaryArray, TestSliceEquality) {
-  CheckSliceEquality<BinaryType>();
-}
+TEST_F(TestBinaryArray, TestSliceEquality) { CheckSliceEquality<BinaryType>(); }
 
-TEST_F(TestStringArray, TestSliceEquality) {
-  CheckSliceEquality<BinaryType>();
-}
+TEST_F(TestStringArray, TestSliceEquality) { CheckSliceEquality<BinaryType>(); }
 
-TEST_F(TestBinaryArray, LengthZeroCtor) {
-  BinaryArray array(0, nullptr, nullptr);
-}
+TEST_F(TestBinaryArray, LengthZeroCtor) { BinaryArray array(0, nullptr, nullptr); }
 
 // ----------------------------------------------------------------------
 // FixedSizeBinary tests
@@ -1098,7 +1102,7 @@ class TestFWBinaryArray : public ::testing::Test {
 
   void InitBuilder(int byte_width) {
     auto type = fixed_size_binary(byte_width);
-    builder_.reset(new FixedSizeBinaryBuilder(default_memory_pool(), type));
+    builder_.reset(new FixedSizeBinaryBuilder(type, default_memory_pool()));
   }
 
  protected:
@@ -1121,8 +1125,8 @@ TEST_F(TestFWBinaryArray, Builder) {
 
   std::shared_ptr<Array> result;
 
-  auto CheckResult = [this, &length, &is_valid, &raw_data, &byte_width](
-      const Array& result) {
+  auto CheckResult = [this, &length, &is_valid, &raw_data,
+                      &byte_width](const Array& result) {
     // Verify output
     const auto& fw_result = static_cast<const FixedSizeBinaryArray&>(result);
 
@@ -1130,8 +1134,8 @@ TEST_F(TestFWBinaryArray, Builder) {
 
     for (int64_t i = 0; i < result.length(); ++i) {
       if (is_valid[i]) {
-        ASSERT_EQ(
-            0, memcmp(raw_data + byte_width * i, fw_result.GetValue(i), byte_width));
+        ASSERT_EQ(0,
+                  memcmp(raw_data + byte_width * i, fw_result.GetValue(i), byte_width));
       } else {
         ASSERT_TRUE(fw_result.IsNull(i));
       }
@@ -1142,9 +1146,9 @@ TEST_F(TestFWBinaryArray, Builder) {
   InitBuilder(byte_width);
   for (int64_t i = 0; i < length; ++i) {
     if (is_valid[i]) {
-      builder_->Append(raw_data + byte_width * i);
+      ASSERT_OK(builder_->Append(raw_data + byte_width * i));
     } else {
-      builder_->AppendNull();
+      ASSERT_OK(builder_->AppendNull());
     }
   }
 
@@ -1165,10 +1169,10 @@ TEST_F(TestFWBinaryArray, Builder) {
   InitBuilder(byte_width);
   for (int64_t i = 0; i < length; ++i) {
     if (is_valid[i]) {
-      builder_->Append(
-          string(reinterpret_cast<const char*>(raw_data + byte_width * i), byte_width));
+      ASSERT_OK(builder_->Append(
+          string(reinterpret_cast<const char*>(raw_data + byte_width * i), byte_width)));
     } else {
-      builder_->AppendNull();
+      ASSERT_OK(builder_->AppendNull());
     }
   }
 
@@ -1180,8 +1184,8 @@ TEST_F(TestFWBinaryArray, EqualsRangeEquals) {
   // Check that we don't compare data in null slots
 
   auto type = fixed_size_binary(4);
-  FixedSizeBinaryBuilder builder1(default_memory_pool(), type);
-  FixedSizeBinaryBuilder builder2(default_memory_pool(), type);
+  FixedSizeBinaryBuilder builder1(type);
+  FixedSizeBinaryBuilder builder2(type);
 
   ASSERT_OK(builder1.Append("foo1"));
   ASSERT_OK(builder1.AppendNull());
@@ -1196,8 +1200,8 @@ TEST_F(TestFWBinaryArray, EqualsRangeEquals) {
   const auto& a1 = static_cast<const FixedSizeBinaryArray&>(*array1);
   const auto& a2 = static_cast<const FixedSizeBinaryArray&>(*array2);
 
-  FixedSizeBinaryArray equal1(type, 2, a1.data(), a1.null_bitmap(), 1);
-  FixedSizeBinaryArray equal2(type, 2, a2.data(), a1.null_bitmap(), 1);
+  FixedSizeBinaryArray equal1(type, 2, a1.values(), a1.null_bitmap(), 1);
+  FixedSizeBinaryArray equal2(type, 2, a2.values(), a1.null_bitmap(), 1);
 
   ASSERT_TRUE(equal1.Equals(equal2));
   ASSERT_TRUE(equal1.RangeEquals(equal2, 0, 2, 0));
@@ -1205,7 +1209,7 @@ TEST_F(TestFWBinaryArray, EqualsRangeEquals) {
 
 TEST_F(TestFWBinaryArray, ZeroSize) {
   auto type = fixed_size_binary(0);
-  FixedSizeBinaryBuilder builder(default_memory_pool(), type);
+  FixedSizeBinaryBuilder builder(type);
 
   ASSERT_OK(builder.Append(nullptr));
   ASSERT_OK(builder.Append(nullptr));
@@ -1220,7 +1224,7 @@ TEST_F(TestFWBinaryArray, ZeroSize) {
   const auto& fw_array = static_cast<const FixedSizeBinaryArray&>(*array);
 
   // data is never allocated
-  ASSERT_TRUE(fw_array.data() == nullptr);
+  ASSERT_TRUE(fw_array.values() == nullptr);
   ASSERT_EQ(0, fw_array.byte_width());
 
   ASSERT_EQ(6, array->length());
@@ -1229,16 +1233,16 @@ TEST_F(TestFWBinaryArray, ZeroSize) {
 
 TEST_F(TestFWBinaryArray, Slice) {
   auto type = fixed_size_binary(4);
-  FixedSizeBinaryBuilder builder(default_memory_pool(), type);
+  FixedSizeBinaryBuilder builder(type);
 
   vector<string> strings = {"foo1", "foo2", "foo3", "foo4", "foo5"};
   vector<uint8_t> is_null = {0, 1, 0, 0, 0};
 
   for (int i = 0; i < 5; ++i) {
     if (is_null[i]) {
-      builder.AppendNull();
+      ASSERT_OK(builder.AppendNull());
     } else {
-      builder.Append(strings[i]);
+      ASSERT_OK(builder.Append(strings[i]));
     }
   }
 
@@ -1287,9 +1291,9 @@ class TestAdaptiveIntBuilder : public TestBuilder {
 };
 
 TEST_F(TestAdaptiveIntBuilder, TestInt8) {
-  builder_->Append(0);
-  builder_->Append(127);
-  builder_->Append(-128);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(builder_->Append(127));
+  ASSERT_OK(builder_->Append(-128));
 
   Done();
 
@@ -1299,8 +1303,8 @@ TEST_F(TestAdaptiveIntBuilder, TestInt8) {
 }
 
 TEST_F(TestAdaptiveIntBuilder, TestInt16) {
-  builder_->Append(0);
-  builder_->Append(128);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(builder_->Append(128));
   Done();
 
   std::vector<int16_t> expected_values({0, 128});
@@ -1308,7 +1312,7 @@ TEST_F(TestAdaptiveIntBuilder, TestInt16) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(-129);
+  ASSERT_OK(builder_->Append(-129));
   expected_values = {-129};
   Done();
 
@@ -1316,10 +1320,10 @@ TEST_F(TestAdaptiveIntBuilder, TestInt16) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<int16_t>::max());
-  builder_->Append(std::numeric_limits<int16_t>::min());
-  expected_values = {
-      std::numeric_limits<int16_t>::max(), std::numeric_limits<int16_t>::min()};
+  ASSERT_OK(builder_->Append(std::numeric_limits<int16_t>::max()));
+  ASSERT_OK(builder_->Append(std::numeric_limits<int16_t>::min()));
+  expected_values = {std::numeric_limits<int16_t>::max(),
+                     std::numeric_limits<int16_t>::min()};
   Done();
 
   ArrayFromVector<Int16Type, int16_t>(expected_values, &expected_);
@@ -1327,8 +1331,9 @@ TEST_F(TestAdaptiveIntBuilder, TestInt16) {
 }
 
 TEST_F(TestAdaptiveIntBuilder, TestInt32) {
-  builder_->Append(0);
-  builder_->Append(static_cast<int64_t>(std::numeric_limits<int16_t>::max()) + 1);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(
+      builder_->Append(static_cast<int64_t>(std::numeric_limits<int16_t>::max()) + 1));
   Done();
 
   std::vector<int32_t> expected_values(
@@ -1337,7 +1342,8 @@ TEST_F(TestAdaptiveIntBuilder, TestInt32) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(static_cast<int64_t>(std::numeric_limits<int16_t>::min()) - 1);
+  ASSERT_OK(
+      builder_->Append(static_cast<int64_t>(std::numeric_limits<int16_t>::min()) - 1));
   expected_values = {static_cast<int32_t>(std::numeric_limits<int16_t>::min()) - 1};
   Done();
 
@@ -1345,10 +1351,10 @@ TEST_F(TestAdaptiveIntBuilder, TestInt32) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<int32_t>::max());
-  builder_->Append(std::numeric_limits<int32_t>::min());
-  expected_values = {
-      std::numeric_limits<int32_t>::max(), std::numeric_limits<int32_t>::min()};
+  ASSERT_OK(builder_->Append(std::numeric_limits<int32_t>::max()));
+  ASSERT_OK(builder_->Append(std::numeric_limits<int32_t>::min()));
+  expected_values = {std::numeric_limits<int32_t>::max(),
+                     std::numeric_limits<int32_t>::min()};
   Done();
 
   ArrayFromVector<Int32Type, int32_t>(expected_values, &expected_);
@@ -1356,8 +1362,9 @@ TEST_F(TestAdaptiveIntBuilder, TestInt32) {
 }
 
 TEST_F(TestAdaptiveIntBuilder, TestInt64) {
-  builder_->Append(0);
-  builder_->Append(static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(
+      builder_->Append(static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1));
   Done();
 
   std::vector<int64_t> expected_values(
@@ -1366,7 +1373,8 @@ TEST_F(TestAdaptiveIntBuilder, TestInt64) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(static_cast<int64_t>(std::numeric_limits<int32_t>::min()) - 1);
+  ASSERT_OK(
+      builder_->Append(static_cast<int64_t>(std::numeric_limits<int32_t>::min()) - 1));
   expected_values = {static_cast<int64_t>(std::numeric_limits<int32_t>::min()) - 1};
   Done();
 
@@ -1374,10 +1382,10 @@ TEST_F(TestAdaptiveIntBuilder, TestInt64) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<int64_t>::max());
-  builder_->Append(std::numeric_limits<int64_t>::min());
-  expected_values = {
-      std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min()};
+  ASSERT_OK(builder_->Append(std::numeric_limits<int64_t>::max()));
+  ASSERT_OK(builder_->Append(std::numeric_limits<int64_t>::min()));
+  expected_values = {std::numeric_limits<int64_t>::max(),
+                     std::numeric_limits<int64_t>::min()};
   Done();
 
   ArrayFromVector<Int64Type, int64_t>(expected_values, &expected_);
@@ -1387,7 +1395,7 @@ TEST_F(TestAdaptiveIntBuilder, TestInt64) {
 TEST_F(TestAdaptiveIntBuilder, TestAppendVector) {
   std::vector<int64_t> expected_values(
       {0, static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1});
-  builder_->Append(expected_values.data(), expected_values.size());
+  ASSERT_OK(builder_->Append(expected_values.data(), expected_values.size()));
   Done();
 
   ArrayFromVector<Int64Type, int64_t>(expected_values, &expected_);
@@ -1411,8 +1419,8 @@ class TestAdaptiveUIntBuilder : public TestBuilder {
 };
 
 TEST_F(TestAdaptiveUIntBuilder, TestUInt8) {
-  builder_->Append(0);
-  builder_->Append(255);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(builder_->Append(255));
 
   Done();
 
@@ -1422,8 +1430,8 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt8) {
 }
 
 TEST_F(TestAdaptiveUIntBuilder, TestUInt16) {
-  builder_->Append(0);
-  builder_->Append(256);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(builder_->Append(256));
   Done();
 
   std::vector<uint16_t> expected_values({0, 256});
@@ -1431,7 +1439,7 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt16) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<uint16_t>::max());
+  ASSERT_OK(builder_->Append(std::numeric_limits<uint16_t>::max()));
   expected_values = {std::numeric_limits<uint16_t>::max()};
   Done();
 
@@ -1440,8 +1448,9 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt16) {
 }
 
 TEST_F(TestAdaptiveUIntBuilder, TestUInt32) {
-  builder_->Append(0);
-  builder_->Append(static_cast<uint64_t>(std::numeric_limits<uint16_t>::max()) + 1);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(
+      builder_->Append(static_cast<uint64_t>(std::numeric_limits<uint16_t>::max()) + 1));
   Done();
 
   std::vector<uint32_t> expected_values(
@@ -1450,7 +1459,7 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt32) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<uint32_t>::max());
+  ASSERT_OK(builder_->Append(std::numeric_limits<uint32_t>::max()));
   expected_values = {std::numeric_limits<uint32_t>::max()};
   Done();
 
@@ -1459,8 +1468,9 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt32) {
 }
 
 TEST_F(TestAdaptiveUIntBuilder, TestUInt64) {
-  builder_->Append(0);
-  builder_->Append(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1);
+  ASSERT_OK(builder_->Append(0));
+  ASSERT_OK(
+      builder_->Append(static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1));
   Done();
 
   std::vector<uint64_t> expected_values(
@@ -1469,7 +1479,7 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt64) {
   ASSERT_TRUE(expected_->Equals(result_));
 
   SetUp();
-  builder_->Append(std::numeric_limits<uint64_t>::max());
+  ASSERT_OK(builder_->Append(std::numeric_limits<uint64_t>::max()));
   expected_values = {std::numeric_limits<uint64_t>::max()};
   Done();
 
@@ -1480,11 +1490,187 @@ TEST_F(TestAdaptiveUIntBuilder, TestUInt64) {
 TEST_F(TestAdaptiveUIntBuilder, TestAppendVector) {
   std::vector<uint64_t> expected_values(
       {0, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1});
-  builder_->Append(expected_values.data(), expected_values.size());
+  ASSERT_OK(builder_->Append(expected_values.data(), expected_values.size()));
   Done();
 
   ArrayFromVector<UInt64Type, uint64_t>(expected_values, &expected_);
   ASSERT_TRUE(expected_->Equals(result_));
+}
+
+// ----------------------------------------------------------------------
+// Dictionary tests
+
+template <typename Type>
+class TestDictionaryBuilder : public TestBuilder {};
+
+typedef ::testing::Types<Int8Type, UInt8Type, Int16Type, UInt16Type, Int32Type,
+                         UInt32Type, Int64Type, UInt64Type, FloatType, DoubleType>
+    PrimitiveDictionaries;
+
+TYPED_TEST_CASE(TestDictionaryBuilder, PrimitiveDictionaries);
+
+TYPED_TEST(TestDictionaryBuilder, Basic) {
+  DictionaryBuilder<TypeParam> builder(default_memory_pool());
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(1)));
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(2)));
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(1)));
+
+  std::shared_ptr<Array> result;
+  ASSERT_OK(builder.Finish(&result));
+
+  // Build expected data
+  NumericBuilder<TypeParam> dict_builder;
+  ASSERT_OK(dict_builder.Append(static_cast<typename TypeParam::c_type>(1)));
+  ASSERT_OK(dict_builder.Append(static_cast<typename TypeParam::c_type>(2)));
+  std::shared_ptr<Array> dict_array;
+  ASSERT_OK(dict_builder.Finish(&dict_array));
+  auto dtype = std::make_shared<DictionaryType>(int8(), dict_array);
+
+  Int8Builder int_builder;
+  ASSERT_OK(int_builder.Append(0));
+  ASSERT_OK(int_builder.Append(1));
+  ASSERT_OK(int_builder.Append(0));
+  std::shared_ptr<Array> int_array;
+  ASSERT_OK(int_builder.Finish(&int_array));
+
+  DictionaryArray expected(dtype, int_array);
+  ASSERT_TRUE(expected.Equals(result));
+}
+
+TYPED_TEST(TestDictionaryBuilder, ArrayConversion) {
+  NumericBuilder<TypeParam> builder;
+  // DictionaryBuilder<TypeParam> builder;
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(1)));
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(2)));
+  ASSERT_OK(builder.Append(static_cast<typename TypeParam::c_type>(1)));
+
+  std::shared_ptr<Array> intermediate_result;
+  ASSERT_OK(builder.Finish(&intermediate_result));
+  DictionaryBuilder<TypeParam> dictionary_builder(default_memory_pool());
+  ASSERT_OK(dictionary_builder.AppendArray(*intermediate_result));
+  std::shared_ptr<Array> result;
+  ASSERT_OK(dictionary_builder.Finish(&result));
+
+  // Build expected data
+  NumericBuilder<TypeParam> dict_builder;
+  ASSERT_OK(dict_builder.Append(static_cast<typename TypeParam::c_type>(1)));
+  ASSERT_OK(dict_builder.Append(static_cast<typename TypeParam::c_type>(2)));
+  std::shared_ptr<Array> dict_array;
+  ASSERT_OK(dict_builder.Finish(&dict_array));
+  auto dtype = std::make_shared<DictionaryType>(int8(), dict_array);
+
+  Int8Builder int_builder;
+  ASSERT_OK(int_builder.Append(0));
+  ASSERT_OK(int_builder.Append(1));
+  ASSERT_OK(int_builder.Append(0));
+  std::shared_ptr<Array> int_array;
+  ASSERT_OK(int_builder.Finish(&int_array));
+
+  DictionaryArray expected(dtype, int_array);
+  ASSERT_TRUE(expected.Equals(result));
+}
+
+TYPED_TEST(TestDictionaryBuilder, DoubleTableSize) {
+  using Scalar = typename TypeParam::c_type;
+  // Skip this test for (u)int8
+  if (sizeof(Scalar) > 1) {
+    // Build the dictionary Array
+    DictionaryBuilder<TypeParam> builder(default_memory_pool());
+    // Build expected data
+    NumericBuilder<TypeParam> dict_builder;
+    Int16Builder int_builder;
+
+    // Fill with 1024 different values
+    for (int64_t i = 0; i < 1024; i++) {
+      ASSERT_OK(builder.Append(static_cast<Scalar>(i)));
+      ASSERT_OK(dict_builder.Append(static_cast<Scalar>(i)));
+      ASSERT_OK(int_builder.Append(static_cast<uint16_t>(i)));
+    }
+    // Fill with an already existing value
+    for (int64_t i = 0; i < 1024; i++) {
+      ASSERT_OK(builder.Append(static_cast<Scalar>(1)));
+      ASSERT_OK(int_builder.Append(1));
+    }
+
+    // Finalize result
+    std::shared_ptr<Array> result;
+    ASSERT_OK(builder.Finish(&result));
+
+    // Finalize expected data
+    std::shared_ptr<Array> dict_array;
+    ASSERT_OK(dict_builder.Finish(&dict_array));
+    auto dtype = std::make_shared<DictionaryType>(int16(), dict_array);
+    std::shared_ptr<Array> int_array;
+    ASSERT_OK(int_builder.Finish(&int_array));
+
+    DictionaryArray expected(dtype, int_array);
+    ASSERT_TRUE(expected.Equals(result));
+  }
+}
+
+TEST(TestStringDictionaryBuilder, Basic) {
+  // Build the dictionary Array
+  StringDictionaryBuilder builder(default_memory_pool());
+  ASSERT_OK(builder.Append("test"));
+  ASSERT_OK(builder.Append("test2"));
+  ASSERT_OK(builder.Append("test"));
+
+  std::shared_ptr<Array> result;
+  ASSERT_OK(builder.Finish(&result));
+
+  // Build expected data
+  StringBuilder str_builder;
+  ASSERT_OK(str_builder.Append("test"));
+  ASSERT_OK(str_builder.Append("test2"));
+  std::shared_ptr<Array> str_array;
+  ASSERT_OK(str_builder.Finish(&str_array));
+  auto dtype = std::make_shared<DictionaryType>(int8(), str_array);
+
+  Int8Builder int_builder;
+  ASSERT_OK(int_builder.Append(0));
+  ASSERT_OK(int_builder.Append(1));
+  ASSERT_OK(int_builder.Append(0));
+  std::shared_ptr<Array> int_array;
+  ASSERT_OK(int_builder.Finish(&int_array));
+
+  DictionaryArray expected(dtype, int_array);
+  ASSERT_TRUE(expected.Equals(result));
+}
+
+TEST(TestStringDictionaryBuilder, DoubleTableSize) {
+  // Build the dictionary Array
+  StringDictionaryBuilder builder(default_memory_pool());
+  // Build expected data
+  StringBuilder str_builder;
+  Int16Builder int_builder;
+
+  // Fill with 1024 different values
+  for (int64_t i = 0; i < 1024; i++) {
+    std::stringstream ss;
+    ss << "test" << i;
+    ASSERT_OK(builder.Append(ss.str()));
+    ASSERT_OK(str_builder.Append(ss.str()));
+    ASSERT_OK(int_builder.Append(static_cast<uint16_t>(i)));
+  }
+  // Fill with an already existing value
+  for (int64_t i = 0; i < 1024; i++) {
+    ASSERT_OK(builder.Append("test1"));
+    ASSERT_OK(int_builder.Append(1));
+  }
+
+  // Finalize result
+  std::shared_ptr<Array> result;
+  ASSERT_OK(builder.Finish(&result));
+
+  // Finalize expected data
+  std::shared_ptr<Array> str_array;
+  ASSERT_OK(str_builder.Finish(&str_array));
+  auto dtype = std::make_shared<DictionaryType>(int16(), str_array);
+  std::shared_ptr<Array> int_array;
+  ASSERT_OK(int_builder.Finish(&int_array));
+
+  DictionaryArray expected(dtype, int_array);
+  ASSERT_TRUE(expected.Equals(result));
 }
 
 // ----------------------------------------------------------------------
@@ -1498,9 +1684,9 @@ class TestListBuilder : public TestBuilder {
     value_type_ = int32();
     type_ = list(value_type_);
 
-    std::shared_ptr<ArrayBuilder> tmp;
+    std::unique_ptr<ArrayBuilder> tmp;
     ASSERT_OK(MakeBuilder(pool_, type_, &tmp));
-    builder_ = std::dynamic_pointer_cast<ListBuilder>(tmp);
+    builder_.reset(static_cast<ListBuilder*>(tmp.release()));
   }
 
   void Done() {
@@ -1518,7 +1704,7 @@ class TestListBuilder : public TestBuilder {
 };
 
 TEST_F(TestListBuilder, Equality) {
-  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder().get());
+  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder());
 
   std::shared_ptr<Array> array, equal_array, unequal_array;
   vector<int32_t> equal_offsets = {0, 1, 2, 5, 6, 7, 8, 10};
@@ -1592,12 +1778,12 @@ TEST_F(TestListBuilder, TestAppendNull) {
   ASSERT_EQ(0, result_->value_offset(1));
   ASSERT_EQ(0, result_->value_offset(2));
 
-  Int32Array* values = static_cast<Int32Array*>(result_->values().get());
+  auto values = result_->values();
   ASSERT_EQ(0, values->length());
 }
 
 void ValidateBasicListArray(const ListArray* result, const vector<int32_t>& values,
-    const vector<uint8_t>& is_valid) {
+                            const vector<uint8_t>& is_valid) {
   ASSERT_OK(ValidateArray(*result));
   ASSERT_EQ(1, result->null_count());
   ASSERT_EQ(0, result->values()->null_count());
@@ -1613,7 +1799,7 @@ void ValidateBasicListArray(const ListArray* result, const vector<int32_t>& valu
   }
 
   ASSERT_EQ(7, result->values()->length());
-  Int32Array* varr = static_cast<Int32Array*>(result->values().get());
+  auto varr = std::dynamic_pointer_cast<Int32Array>(result->values());
 
   for (size_t i = 0; i < values.size(); ++i) {
     ASSERT_EQ(values[i], varr->Value(i));
@@ -1625,7 +1811,7 @@ TEST_F(TestListBuilder, TestBasics) {
   vector<int> lengths = {3, 0, 4};
   vector<uint8_t> is_valid = {1, 0, 1};
 
-  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder().get());
+  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder());
 
   ASSERT_OK(builder_->Reserve(lengths.size()));
   ASSERT_OK(vb->Reserve(values.size()));
@@ -1634,7 +1820,7 @@ TEST_F(TestListBuilder, TestBasics) {
   for (size_t i = 0; i < lengths.size(); ++i) {
     ASSERT_OK(builder_->Append(is_valid[i] > 0));
     for (int j = 0; j < lengths[i]; ++j) {
-      vb->Append(values[pos++]);
+      ASSERT_OK(vb->Append(values[pos++]));
     }
   }
 
@@ -1648,12 +1834,12 @@ TEST_F(TestListBuilder, BulkAppend) {
   vector<uint8_t> is_valid = {1, 0, 1};
   vector<int32_t> offsets = {0, 3, 3};
 
-  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder().get());
+  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder());
   ASSERT_OK(vb->Reserve(values.size()));
 
-  builder_->Append(offsets.data(), offsets.size(), is_valid.data());
+  ASSERT_OK(builder_->Append(offsets.data(), offsets.size(), is_valid.data()));
   for (int32_t value : values) {
-    vb->Append(value);
+    ASSERT_OK(vb->Append(value));
   }
   Done();
   ValidateBasicListArray(result_.get(), values, is_valid);
@@ -1666,13 +1852,13 @@ TEST_F(TestListBuilder, BulkAppendInvalid) {
   vector<uint8_t> is_valid = {1, 0, 1};
   vector<int32_t> offsets = {0, 2, 4};  // should be 0, 3, 3 given the is_null array
 
-  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder().get());
+  Int32Builder* vb = static_cast<Int32Builder*>(builder_->value_builder());
   ASSERT_OK(vb->Reserve(values.size()));
 
-  builder_->Append(offsets.data(), offsets.size(), is_valid.data());
-  builder_->Append(offsets.data(), offsets.size(), is_valid.data());
+  ASSERT_OK(builder_->Append(offsets.data(), offsets.size(), is_valid.data()));
+  ASSERT_OK(builder_->Append(offsets.data(), offsets.size(), is_valid.data()));
   for (int32_t value : values) {
-    vb->Append(value);
+    ASSERT_OK(vb->Append(value));
   }
 
   Done();
@@ -1695,15 +1881,18 @@ TEST(TestDictionary, Basics) {
 
   std::shared_ptr<DictionaryType> type1 =
       std::dynamic_pointer_cast<DictionaryType>(dictionary(int16(), dict));
-  DictionaryType type2(int16(), dict);
+
+  auto type2 =
+      std::dynamic_pointer_cast<DictionaryType>(::arrow::dictionary(int16(), dict, true));
 
   ASSERT_TRUE(int16()->Equals(type1->index_type()));
   ASSERT_TRUE(type1->dictionary()->Equals(dict));
 
-  ASSERT_TRUE(int16()->Equals(type2.index_type()));
-  ASSERT_TRUE(type2.dictionary()->Equals(dict));
+  ASSERT_TRUE(int16()->Equals(type2->index_type()));
+  ASSERT_TRUE(type2->dictionary()->Equals(dict));
 
-  ASSERT_EQ("dictionary<values=int32, indices=int16>", type1->ToString());
+  ASSERT_EQ("dictionary<values=int32, indices=int16, ordered=0>", type1->ToString());
+  ASSERT_EQ("dictionary<values=int32, indices=int16, ordered=1>", type2->ToString());
 }
 
 TEST(TestDictionary, Equals) {
@@ -1783,40 +1972,45 @@ TEST(TestDictionary, Validate) {
   std::shared_ptr<DataType> dict_type = dictionary(int16(), dict);
 
   std::shared_ptr<Array> indices;
-  vector<uint8_t> indices_values = {1, 2, 0, 0, 2, 0};
-  ArrayFromVector<UInt8Type, uint8_t>(is_valid, indices_values, &indices);
-
-  std::shared_ptr<Array> indices2;
-  vector<float> indices2_values = {1., 2., 0., 0., 2., 0.};
-  ArrayFromVector<FloatType, float>(is_valid, indices2_values, &indices2);
-
-  std::shared_ptr<Array> indices3;
-  vector<int64_t> indices3_values = {1, 2, 0, 0, 2, 0};
-  ArrayFromVector<Int64Type, int64_t>(is_valid, indices3_values, &indices3);
+  vector<int16_t> indices_values = {1, 2, 0, 0, 2, 0};
+  ArrayFromVector<Int16Type, int16_t>(is_valid, indices_values, &indices);
 
   std::shared_ptr<Array> arr = std::make_shared<DictionaryArray>(dict_type, indices);
-  std::shared_ptr<Array> arr2 = std::make_shared<DictionaryArray>(dict_type, indices2);
-  std::shared_ptr<Array> arr3 = std::make_shared<DictionaryArray>(dict_type, indices3);
 
   // Only checking index type for now
   ASSERT_OK(ValidateArray(*arr));
-  ASSERT_RAISES(Invalid, ValidateArray(*arr2));
-  ASSERT_OK(ValidateArray(*arr3));
+
+  // TODO(wesm) In ARROW-1199, there is now a DCHECK to compare the indices
+  // type with the dict_type. How can we test for this?
+
+  // std::shared_ptr<Array> indices2;
+  // vector<float> indices2_values = {1., 2., 0., 0., 2., 0.};
+  // ArrayFromVector<FloatType, float>(is_valid, indices2_values, &indices2);
+
+  // std::shared_ptr<Array> indices3;
+  // vector<int64_t> indices3_values = {1, 2, 0, 0, 2, 0};
+  // ArrayFromVector<Int64Type, int64_t>(is_valid, indices3_values, &indices3);
+  // std::shared_ptr<Array> arr2 = std::make_shared<DictionaryArray>(dict_type, indices2);
+  // std::shared_ptr<Array> arr3 = std::make_shared<DictionaryArray>(dict_type, indices3);
+  // ASSERT_OK(ValidateArray(*arr3));
 }
 
 // ----------------------------------------------------------------------
 // Struct tests
 
 void ValidateBasicStructArray(const StructArray* result,
-    const vector<uint8_t>& struct_is_valid, const vector<char>& list_values,
-    const vector<uint8_t>& list_is_valid, const vector<int>& list_lengths,
-    const vector<int>& list_offsets, const vector<int32_t>& int_values) {
+                              const vector<uint8_t>& struct_is_valid,
+                              const vector<char>& list_values,
+                              const vector<uint8_t>& list_is_valid,
+                              const vector<int>& list_lengths,
+                              const vector<int>& list_offsets,
+                              const vector<int32_t>& int_values) {
   ASSERT_EQ(4, result->length());
   ASSERT_OK(ValidateArray(*result));
 
-  auto list_char_arr = static_cast<ListArray*>(result->field(0).get());
-  auto char_arr = static_cast<Int8Array*>(list_char_arr->values().get());
-  auto int32_arr = static_cast<Int32Array*>(result->field(1).get());
+  auto list_char_arr = std::dynamic_pointer_cast<ListArray>(result->field(0));
+  auto char_arr = std::dynamic_pointer_cast<Int8Array>(list_char_arr->values());
+  auto int32_arr = std::dynamic_pointer_cast<Int32Array>(result->field(1));
 
   ASSERT_EQ(0, result->null_count());
   ASSERT_EQ(1, list_char_arr->null_count());
@@ -1851,18 +2045,17 @@ class TestStructBuilder : public TestBuilder {
     auto list_type = list(char_type);
 
     vector<std::shared_ptr<DataType>> types = {list_type, int32_type};
-    vector<FieldPtr> fields;
-    fields.push_back(FieldPtr(new Field("list", list_type)));
-    fields.push_back(FieldPtr(new Field("int", int32_type)));
+    vector<std::shared_ptr<Field>> fields;
+    fields.push_back(field("list", list_type));
+    fields.push_back(field("int", int32_type));
 
     type_ = struct_(fields);
     value_fields_ = fields;
 
-    std::shared_ptr<ArrayBuilder> tmp;
+    std::unique_ptr<ArrayBuilder> tmp;
     ASSERT_OK(MakeBuilder(pool_, type_, &tmp));
-
-    builder_ = std::dynamic_pointer_cast<StructBuilder>(tmp);
-    ASSERT_EQ(2, static_cast<int>(builder_->field_builders().size()));
+    builder_.reset(static_cast<StructBuilder*>(tmp.release()));
+    ASSERT_EQ(2, static_cast<int>(builder_->num_fields()));
   }
 
   void Done() {
@@ -1872,7 +2065,7 @@ class TestStructBuilder : public TestBuilder {
   }
 
  protected:
-  vector<FieldPtr> value_fields_;
+  vector<std::shared_ptr<Field>> value_fields_;
   std::shared_ptr<DataType> type_;
 
   std::shared_ptr<StructBuilder> builder_;
@@ -1882,14 +2075,14 @@ class TestStructBuilder : public TestBuilder {
 TEST_F(TestStructBuilder, TestAppendNull) {
   ASSERT_OK(builder_->AppendNull());
   ASSERT_OK(builder_->AppendNull());
-  ASSERT_EQ(2, static_cast<int>(builder_->field_builders().size()));
+  ASSERT_EQ(2, static_cast<int>(builder_->num_fields()));
 
-  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0).get());
+  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0));
   ASSERT_OK(list_vb->AppendNull());
   ASSERT_OK(list_vb->AppendNull());
   ASSERT_EQ(2, list_vb->length());
 
-  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1).get());
+  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1));
   ASSERT_OK(int_vb->AppendNull());
   ASSERT_OK(int_vb->AppendNull());
   ASSERT_EQ(2, int_vb->length());
@@ -1898,7 +2091,7 @@ TEST_F(TestStructBuilder, TestAppendNull) {
 
   ASSERT_OK(ValidateArray(*result_));
 
-  ASSERT_EQ(2, static_cast<int>(result_->fields().size()));
+  ASSERT_EQ(2, static_cast<int>(result_->num_fields()));
   ASSERT_EQ(2, result_->length());
   ASSERT_EQ(2, result_->field(0)->length());
   ASSERT_EQ(2, result_->field(1)->length());
@@ -1921,10 +2114,10 @@ TEST_F(TestStructBuilder, TestBasics) {
   vector<uint8_t> list_is_valid = {1, 0, 1, 1};
   vector<uint8_t> struct_is_valid = {1, 1, 1, 1};
 
-  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0).get());
-  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder().get());
-  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1).get());
-  ASSERT_EQ(2, static_cast<int>(builder_->field_builders().size()));
+  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0));
+  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder());
+  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1));
+  ASSERT_EQ(2, static_cast<int>(builder_->num_fields()));
 
   EXPECT_OK(builder_->Resize(list_lengths.size()));
   EXPECT_OK(char_vb->Resize(list_values.size()));
@@ -1946,7 +2139,7 @@ TEST_F(TestStructBuilder, TestBasics) {
   Done();
 
   ValidateBasicStructArray(result_.get(), struct_is_valid, list_values, list_is_valid,
-      list_lengths, list_offsets, int_values);
+                           list_lengths, list_offsets, int_values);
 }
 
 TEST_F(TestStructBuilder, BulkAppend) {
@@ -1957,17 +2150,18 @@ TEST_F(TestStructBuilder, BulkAppend) {
   vector<uint8_t> list_is_valid = {1, 0, 1, 1};
   vector<uint8_t> struct_is_valid = {1, 1, 1, 1};
 
-  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0).get());
-  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder().get());
-  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1).get());
+  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0));
+  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder());
+  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1));
 
   ASSERT_OK(builder_->Resize(list_lengths.size()));
   ASSERT_OK(char_vb->Resize(list_values.size()));
   ASSERT_OK(int_vb->Resize(int_values.size()));
 
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
 
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -1977,7 +2171,7 @@ TEST_F(TestStructBuilder, BulkAppend) {
 
   Done();
   ValidateBasicStructArray(result_.get(), struct_is_valid, list_values, list_is_valid,
-      list_lengths, list_offsets, int_values);
+                           list_lengths, list_offsets, int_values);
 }
 
 TEST_F(TestStructBuilder, BulkAppendInvalid) {
@@ -1988,17 +2182,18 @@ TEST_F(TestStructBuilder, BulkAppendInvalid) {
   vector<uint8_t> list_is_valid = {1, 0, 1, 1};
   vector<uint8_t> struct_is_valid = {1, 0, 1, 1};  // should be 1, 1, 1, 1
 
-  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0).get());
-  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder().get());
-  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1).get());
+  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0));
+  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder());
+  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1));
 
   ASSERT_OK(builder_->Reserve(list_lengths.size()));
   ASSERT_OK(char_vb->Reserve(list_values.size()));
   ASSERT_OK(int_vb->Reserve(int_values.size()));
 
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
 
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -2029,16 +2224,17 @@ TEST_F(TestStructBuilder, TestEquality) {
   vector<uint8_t> unequal_list_is_valid = {1, 1, 1, 1};
   vector<uint8_t> unequal_struct_is_valid = {1, 0, 0, 1};
 
-  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0).get());
-  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder().get());
-  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1).get());
+  ListBuilder* list_vb = static_cast<ListBuilder*>(builder_->field_builder(0));
+  Int8Builder* char_vb = static_cast<Int8Builder*>(list_vb->value_builder());
+  Int32Builder* int_vb = static_cast<Int32Builder*>(builder_->field_builder(1));
   ASSERT_OK(builder_->Reserve(list_lengths.size()));
   ASSERT_OK(char_vb->Reserve(list_values.size()));
   ASSERT_OK(int_vb->Reserve(int_values.size()));
 
   // setup two equal arrays, one of which takes an unequal bitmap
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -2052,8 +2248,9 @@ TEST_F(TestStructBuilder, TestEquality) {
   ASSERT_OK(char_vb->Resize(list_values.size()));
   ASSERT_OK(int_vb->Resize(int_values.size()));
 
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -2068,8 +2265,10 @@ TEST_F(TestStructBuilder, TestEquality) {
   ASSERT_OK(int_vb->Resize(int_values.size()));
 
   // setup an unequal one with the unequal bitmap
-  builder_->Append(unequal_struct_is_valid.size(), unequal_struct_is_valid.data());
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(
+      builder_->Append(unequal_struct_is_valid.size(), unequal_struct_is_valid.data()));
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -2084,9 +2283,9 @@ TEST_F(TestStructBuilder, TestEquality) {
   ASSERT_OK(int_vb->Resize(int_values.size()));
 
   // setup an unequal one with unequal offsets
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
-  list_vb->Append(unequal_list_offsets.data(), unequal_list_offsets.size(),
-      unequal_list_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
+  ASSERT_OK(list_vb->Append(unequal_list_offsets.data(), unequal_list_offsets.size(),
+                            unequal_list_is_valid.data()));
   for (int8_t value : list_values) {
     char_vb->UnsafeAppend(value);
   }
@@ -2101,8 +2300,9 @@ TEST_F(TestStructBuilder, TestEquality) {
   ASSERT_OK(int_vb->Resize(int_values.size()));
 
   // setup anunequal one with unequal values
-  builder_->Append(struct_is_valid.size(), struct_is_valid.data());
-  list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data());
+  ASSERT_OK(builder_->Append(struct_is_valid.size(), struct_is_valid.data()));
+  ASSERT_OK(
+      list_vb->Append(list_offsets.data(), list_offsets.size(), list_is_valid.data()));
   for (int8_t value : unequal_list_values) {
     char_vb->UnsafeAppend(value);
   }

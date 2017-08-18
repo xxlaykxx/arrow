@@ -77,7 +77,9 @@ void TestArrayRoundTrip(const Array& array) {
   rj::Document d;
   d.Parse(array_as_json);
 
-  if (d.HasParseError()) { FAIL() << "JSON parsing failed"; }
+  if (d.HasParseError()) {
+    FAIL() << "JSON parsing failed";
+  }
 
   std::shared_ptr<Array> out;
   ASSERT_OK(internal::ReadArray(default_memory_pool(), d, array.type(), &out));
@@ -88,7 +90,8 @@ void TestArrayRoundTrip(const Array& array) {
 
 template <typename T, typename ValueType>
 void CheckPrimitive(const std::shared_ptr<DataType>& type,
-    const std::vector<bool>& is_valid, const std::vector<ValueType>& values) {
+                    const std::vector<bool>& is_valid,
+                    const std::vector<ValueType>& values) {
   MemoryPool* pool = default_memory_pool();
   typename TypeTraits<T>::BuilderType builder(pool);
 
@@ -108,16 +111,17 @@ void CheckPrimitive(const std::shared_ptr<DataType>& type,
 TEST(TestJsonSchemaWriter, FlatTypes) {
   // TODO
   // field("f14", date32())
-  std::vector<std::shared_ptr<Field>> fields = {field("f0", int8()),
-      field("f1", int16(), false), field("f2", int32()), field("f3", int64(), false),
-      field("f4", uint8()), field("f5", uint16()), field("f6", uint32()),
-      field("f7", uint64()), field("f8", float32()), field("f9", float64()),
-      field("f10", utf8()), field("f11", binary()), field("f12", list(int32())),
+  std::vector<std::shared_ptr<Field>> fields = {
+      field("f0", int8()), field("f1", int16(), false), field("f2", int32()),
+      field("f3", int64(), false), field("f4", uint8()), field("f5", uint16()),
+      field("f6", uint32()), field("f7", uint64()), field("f8", float32()),
+      field("f9", float64()), field("f10", utf8()), field("f11", binary()),
+      field("f12", list(int32())),
       field("f13", struct_({field("s1", int32()), field("s2", utf8())})),
       field("f15", date64()), field("f16", timestamp(TimeUnit::NANO)),
       field("f17", time64(TimeUnit::MICRO)),
       field("f18", union_({field("u1", int8()), field("u2", time32(TimeUnit::MILLI))},
-                       {0, 1}, UnionMode::DENSE))};
+                          {0, 1}, UnionMode::DENSE))};
 
   Schema schema(fields);
   TestSchemaRoundTrip(schema);
@@ -169,7 +173,7 @@ TEST(TestJsonArrayWriter, NestedTypes) {
   std::vector<int32_t> offsets = {0, 0, 0, 1, 4, 7};
 
   std::shared_ptr<Buffer> list_bitmap;
-  ASSERT_OK(test::GetBitmapFromBoolVector(list_is_valid, &list_bitmap));
+  ASSERT_OK(test::GetBitmapFromVector(list_is_valid, &list_bitmap));
   std::shared_ptr<Buffer> offsets_buffer = test::GetBufferFromVector(offsets);
 
   ListArray list_array(list(value_type), 5, offsets_buffer, values_array, list_bitmap, 1);
@@ -179,14 +183,14 @@ TEST(TestJsonArrayWriter, NestedTypes) {
   // Struct
   std::vector<bool> struct_is_valid = {true, false, true, true, true, false, true};
   std::shared_ptr<Buffer> struct_bitmap;
-  ASSERT_OK(test::GetBitmapFromBoolVector(struct_is_valid, &struct_bitmap));
+  ASSERT_OK(test::GetBitmapFromVector(struct_is_valid, &struct_bitmap));
 
   auto struct_type =
       struct_({field("f1", int32()), field("f2", int32()), field("f3", int32())});
 
   std::vector<std::shared_ptr<Array>> fields = {values_array, values_array, values_array};
-  StructArray struct_array(
-      struct_type, static_cast<int>(struct_is_valid.size()), fields, struct_bitmap, 2);
+  StructArray struct_array(struct_type, static_cast<int>(struct_is_valid.size()), fields,
+                           struct_bitmap, 2);
   TestArrayRoundTrip(struct_array);
 }
 
@@ -202,7 +206,7 @@ TEST(TestJsonArrayWriter, Unions) {
 
 // Data generation for test case below
 void MakeBatchArrays(const std::shared_ptr<Schema>& schema, const int num_rows,
-    std::vector<std::shared_ptr<Array>>* arrays) {
+                     std::vector<std::shared_ptr<Array>>* arrays) {
   std::vector<bool> is_valid;
   test::random_is_valid(num_rows, 0.25, &is_valid);
 
@@ -221,13 +225,13 @@ void MakeBatchArrays(const std::shared_ptr<Schema>& schema, const int num_rows,
   static const int kBufferSize = 10;
   static uint8_t buffer[kBufferSize];
   static uint32_t seed = 0;
-  StringBuilder string_builder(default_memory_pool());
+  StringBuilder string_builder;
   for (int i = 0; i < num_rows; ++i) {
     if (!is_valid[i]) {
-      string_builder.AppendNull();
+      ASSERT_OK(string_builder.AppendNull());
     } else {
       test::random_ascii(kBufferSize, seed++, buffer);
-      string_builder.Append(buffer, kBufferSize);
+      ASSERT_OK(string_builder.Append(buffer, kBufferSize));
     }
   }
   std::shared_ptr<Array> v3;
@@ -243,8 +247,8 @@ TEST(TestJsonFileReadWrite, BasicRoundTrip) {
   auto v2_type = int32();
   auto v3_type = utf8();
 
-  std::shared_ptr<Schema> schema(
-      new Schema({field("f1", v1_type), field("f2", v2_type), field("f3", v3_type)}));
+  auto schema =
+      ::arrow::schema({field("f1", v1_type), field("f2", v2_type), field("f3", v3_type)});
 
   std::unique_ptr<JsonWriter> writer;
   ASSERT_OK(JsonWriter::Open(schema, &writer));
@@ -266,8 +270,8 @@ TEST(TestJsonFileReadWrite, BasicRoundTrip) {
 
   std::unique_ptr<JsonReader> reader;
 
-  auto buffer = std::make_shared<Buffer>(
-      reinterpret_cast<const uint8_t*>(result.c_str()), static_cast<int>(result.size()));
+  auto buffer = std::make_shared<Buffer>(reinterpret_cast<const uint8_t*>(result.c_str()),
+                                         static_cast<int>(result.size()));
 
   ASSERT_OK(JsonReader::Open(buffer, &reader));
   ASSERT_TRUE(reader->schema()->Equals(*schema));
@@ -276,7 +280,7 @@ TEST(TestJsonFileReadWrite, BasicRoundTrip) {
 
   for (int i = 0; i < nbatches; ++i) {
     std::shared_ptr<RecordBatch> batch;
-    ASSERT_OK(reader->GetRecordBatch(i, &batch));
+    ASSERT_OK(reader->ReadRecordBatch(i, &batch));
     ASSERT_TRUE(batch->Equals(*batches[i]));
   }
 }
@@ -332,8 +336,8 @@ TEST(TestJsonFileReadWrite, MinimalFormatExample) {
 }
 )example";
 
-  auto buffer = std::make_shared<Buffer>(
-      reinterpret_cast<const uint8_t*>(example), strlen(example));
+  auto buffer = std::make_shared<Buffer>(reinterpret_cast<const uint8_t*>(example),
+                                         strlen(example));
 
   std::unique_ptr<JsonReader> reader;
   ASSERT_OK(JsonReader::Open(buffer, &reader));
@@ -344,7 +348,7 @@ TEST(TestJsonFileReadWrite, MinimalFormatExample) {
   ASSERT_EQ(1, reader->num_record_batches());
 
   std::shared_ptr<RecordBatch> batch;
-  ASSERT_OK(reader->GetRecordBatch(0, &batch));
+  ASSERT_OK(reader->ReadRecordBatch(0, &batch));
 
   std::vector<bool> foo_valid = {true, false, true, true, true};
   std::vector<int32_t> foo_values = {1, 2, 3, 4, 5};
@@ -361,9 +365,9 @@ TEST(TestJsonFileReadWrite, MinimalFormatExample) {
 
 #define BATCH_CASES()                                                                   \
   ::testing::Values(&MakeIntRecordBatch, &MakeListRecordBatch, &MakeNonNullRecordBatch, \
-      &MakeZeroLengthRecordBatch, &MakeDeeplyNestedList, &MakeStringTypesRecordBatch,   \
-      &MakeStruct, &MakeUnion, &MakeDates, &MakeTimestamps, &MakeTimes, &MakeFWBinary,  \
-      &MakeDictionary);
+                    &MakeZeroLengthRecordBatch, &MakeDeeplyNestedList,                  \
+                    &MakeStringTypesRecordBatch, &MakeStruct, &MakeUnion, &MakeDates,   \
+                    &MakeTimestamps, &MakeTimes, &MakeFWBinary, &MakeDictionary);
 
 class TestJsonRoundTrip : public ::testing::TestWithParam<MakeRecordBatch*> {
  public:
@@ -382,13 +386,13 @@ void CheckRoundtrip(const RecordBatch& batch) {
   ASSERT_OK(writer->Finish(&result));
 
   auto buffer = std::make_shared<Buffer>(reinterpret_cast<const uint8_t*>(result.c_str()),
-      static_cast<int64_t>(result.size()));
+                                         static_cast<int64_t>(result.size()));
 
   std::unique_ptr<JsonReader> reader;
   ASSERT_OK(JsonReader::Open(buffer, &reader));
 
   std::shared_ptr<RecordBatch> result_batch;
-  ASSERT_OK(reader->GetRecordBatch(0, &result_batch));
+  ASSERT_OK(reader->ReadRecordBatch(0, &result_batch));
 
   CompareBatch(batch, *result_batch);
 }
