@@ -44,7 +44,8 @@ static inline bool IsPyInteger(PyObject* obj) {
 #endif
 }
 
-Status InvalidConversion(PyObject* obj, const std::string& expected_type_name) {
+Status InvalidConversion(PyObject* obj, const std::string& expected_types,
+                         std::ostream* out) {
   OwnedRef type(PyObject_Type(obj));
   RETURN_IF_PYERROR();
   DCHECK_NE(type.obj(), nullptr);
@@ -63,10 +64,9 @@ Status InvalidConversion(PyObject* obj, const std::string& expected_type_name) {
 
   std::string cpp_type_name(bytes, size);
 
-  std::stringstream ss;
-  ss << "Python object of type " << cpp_type_name << " is not None and is not a "
-     << expected_type_name << " object";
-  return Status::Invalid(ss.str());
+  (*out) << "Got Python object of type " << cpp_type_name
+         << " but can only handle these types: " << expected_types;
+  return Status::OK();
 }
 
 class ScalarVisitor {
@@ -82,7 +82,7 @@ class ScalarVisitor {
         binary_count_(0),
         unicode_count_(0) {}
 
-  void Visit(PyObject* obj) {
+  Status Visit(PyObject* obj) {
     ++total_count_;
     if (obj == Py_None) {
       ++none_count_;
@@ -102,7 +102,14 @@ class ScalarVisitor {
       ++unicode_count_;
     } else {
       // TODO(wesm): accumulate error information somewhere
+      static std::string supported_types =
+          "bool, float, integer, date, datetime, bytes, unicode";
+      std::stringstream ss;
+      ss << "Error inferring Arrow data type for collection of Python objects. ";
+      RETURN_NOT_OK(InvalidConversion(obj, supported_types, &ss));
+      return Status::Invalid(ss.str());
     }
+    return Status::OK();
   }
 
   std::shared_ptr<DataType> GetType() {
@@ -148,28 +155,36 @@ static constexpr int MAX_NESTING_LEVELS = 32;
 // SeqVisitor is used to infer the type.
 class SeqVisitor {
  public:
-  SeqVisitor() : max_nesting_level_(0) {
+  SeqVisitor() : max_nesting_level_(0), max_observed_level_(0) {
     memset(nesting_histogram_, 0, MAX_NESTING_LEVELS * sizeof(int));
   }
 
   // co-recursive with VisitElem
   Status Visit(PyObject* obj, int level = 0) {
-    if (level > max_nesting_level_) { max_nesting_level_ = level; }
-
+    if (level > max_nesting_level_) {
+      max_nesting_level_ = level;
+    }
     // Loop through either a sequence or an iterator.
     if (PySequence_Check(obj)) {
       Py_ssize_t size = PySequence_Size(obj);
       for (int64_t i = 0; i < size; ++i) {
-	// TODO(wesm): Specialize for PyList_GET_ITEM?
-	OwnedRef ref = OwnedRef(PySequence_GetItem(obj, i));
-	RETURN_NOT_OK(VisitElem(ref, level));
+        OwnedRef ref;
+        if (PyArray_Check(obj)) {
+          auto array = reinterpret_cast<PyArrayObject*>(obj);
+          auto ptr = reinterpret_cast<const char*>(PyArray_GETPTR1(array, i));
+          ref.reset(PyArray_GETITEM(array, ptr));
+          RETURN_NOT_OK(VisitElem(ref, level));
+        } else {
+          ref.reset(PySequence_GetItem(obj, i));
+          RETURN_NOT_OK(VisitElem(ref, level));
+        }
       }
     } else if (PyObject_HasAttrString(obj, "__iter__")) {
       OwnedRef iter = OwnedRef(PyObject_GetIter(obj));
       PyObject* item;
       while ((item = PyIter_Next(iter.obj()))) {
-	OwnedRef ref = OwnedRef(item);
-	RETURN_NOT_OK(VisitElem(ref, level));
+        OwnedRef ref = OwnedRef(item);
+        RETURN_NOT_OK(VisitElem(ref, level));
       }
     } else {
       return Status::TypeError("Object is not a sequence or iterable");
@@ -181,10 +196,10 @@ class SeqVisitor {
     // If all the non-list inputs were null (or there were no inputs)
     if (scalars_.total_count() == 0) {
       if (max_nesting_level_ == 0) {
-	// If its just a single empty list or list of nulls, return null.
+        // If its just a single empty list or list of nulls, return null.
         return null();
       } else {
-	// Error, if we have nesting but no concrete base type.
+        // Error, if we have nesting but no concrete base type.
         return nullptr;
       }
     } else {
@@ -201,28 +216,21 @@ class SeqVisitor {
     if (scalars_.total_count() > 0) {
       if (num_nesting_levels() > 1) {
         return Status::Invalid("Mixed nesting levels not supported");
-      // If the nesting goes deeper than the deepest scalar
-      } else if (max_observed_level() < max_nesting_level_) {
+        // If the nesting goes deeper than the deepest scalar
+      } else if (max_observed_level_ < max_nesting_level_) {
         return Status::Invalid("Mixed nesting levels not supported");
       }
     }
     return Status::OK();
   }
 
-  // Returns the deepest level which has scalar elements.
-  int max_observed_level() const {
-    int result = 0;
-    for (int i = 0; i < MAX_NESTING_LEVELS; ++i) {
-      if (nesting_histogram_[i] > 0) { result = i; }
-    }
-    return result;
-  }
-
   // Returns the number of nesting levels which have scalar elements.
   int num_nesting_levels() const {
     int result = 0;
     for (int i = 0; i < MAX_NESTING_LEVELS; ++i) {
-      if (nesting_histogram_[i] > 0) { ++result; }
+      if (nesting_histogram_[i] > 0) {
+        ++result;
+      }
     }
     return result;
   }
@@ -233,24 +241,28 @@ class SeqVisitor {
   // Track observed
   // Deapest nesting level (irregardless of scalars)
   int max_nesting_level_;
+  int max_observed_level_;
+
   // Number of scalar elements at each nesting level.
   // (TOOD: We really only need to know if a scalar is present, not the count).
   int nesting_histogram_[MAX_NESTING_LEVELS];
 
   // Visits a specific element (inner part of the loop).
-  Status VisitElem(const OwnedRef &item_ref, int level) {
+  Status VisitElem(const OwnedRef& item_ref, int level) {
     if (PyList_Check(item_ref.obj())) {
       RETURN_NOT_OK(Visit(item_ref.obj(), level + 1));
     } else if (PyDict_Check(item_ref.obj())) {
       return Status::NotImplemented("No type inference for dicts");
     } else {
-      // We permit nulls at any level of nesting
-      if (item_ref.obj() == Py_None) {
-	// TODO
-      } else {
-	++nesting_histogram_[level];
-	scalars_.Visit(item_ref.obj());
+      // We permit nulls at any level of nesting, but they aren't treated like
+      // other scalar values as far as the checking for mixed nesting structure
+      if (item_ref.obj() != Py_None) {
+        ++nesting_histogram_[level];
       }
+      if (level > max_observed_level_) {
+        max_observed_level_ = level;
+      }
+      return scalars_.Visit(item_ref.obj());
     }
     return Status::OK();
   }
@@ -280,22 +292,30 @@ Status InferArrowSize(PyObject* obj, int64_t* size) {
 }
 
 // Non-exhaustive type inference
-Status InferArrowTypeAndSize(
-    PyObject* obj, int64_t* size, std::shared_ptr<DataType>* out_type) {
-
-  RETURN_NOT_OK(InferArrowSize(obj, size));
-
-  // For 0-length sequences, refuse to guess
-  if (*size == 0) { *out_type = null(); }
-
+Status InferArrowType(PyObject* obj, std::shared_ptr<DataType>* out_type) {
   PyDateTime_IMPORT;
   SeqVisitor seq_visitor;
   RETURN_NOT_OK(seq_visitor.Visit(obj));
   RETURN_NOT_OK(seq_visitor.Validate());
 
   *out_type = seq_visitor.GetType();
+  if (*out_type == nullptr) {
+    return Status::TypeError("Unable to determine data type");
+  }
 
-  if (*out_type == nullptr) { return Status::TypeError("Unable to determine data type"); }
+  return Status::OK();
+}
+
+Status InferArrowTypeAndSize(PyObject* obj, int64_t* size,
+                             std::shared_ptr<DataType>* out_type) {
+  RETURN_NOT_OK(InferArrowSize(obj, size));
+
+  // For 0-length sequences, refuse to guess
+  if (*size == 0) {
+    *out_type = null();
+    return Status::OK();
+  }
+  RETURN_NOT_OK(InferArrowType(obj, out_type));
 
   return Status::OK();
 }
@@ -303,7 +323,7 @@ Status InferArrowTypeAndSize(
 // Marshal Python sequence (list, tuple, etc.) to Arrow array
 class SeqConverter {
  public:
-  virtual Status Init(const std::shared_ptr<ArrayBuilder>& builder) {
+  virtual Status Init(ArrayBuilder* builder) {
     builder_ = builder;
     return Status::OK();
   }
@@ -313,15 +333,15 @@ class SeqConverter {
   virtual ~SeqConverter() {}
 
  protected:
-  std::shared_ptr<ArrayBuilder> builder_;
+  ArrayBuilder* builder_;
 };
 
 template <typename BuilderType>
 class TypedConverter : public SeqConverter {
  public:
-  Status Init(const std::shared_ptr<ArrayBuilder>& builder) override {
+  Status Init(ArrayBuilder* builder) override {
     builder_ = builder;
-    typed_builder_ = static_cast<BuilderType*>(builder.get());
+    typed_builder_ = static_cast<BuilderType*>(builder);
     return Status::OK();
   }
 
@@ -338,8 +358,8 @@ class TypedConverterVisitor : public TypedConverter<BuilderType> {
     // Iterate over the items adding each one
     if (PySequence_Check(obj)) {
       for (int64_t i = 0; i < size; ++i) {
-	OwnedRef ref(PySequence_GetItem(obj, i));
-	RETURN_NOT_OK(static_cast<Derived*>(this)->AppendItem(ref));
+        OwnedRef ref(PySequence_GetItem(obj, i));
+        RETURN_NOT_OK(static_cast<Derived*>(this)->AppendItem(ref));
       }
     } else if (PyObject_HasAttrString(obj, "__iter__")) {
       PyObject* iter = PyObject_GetIter(obj);
@@ -349,12 +369,12 @@ class TypedConverterVisitor : public TypedConverter<BuilderType> {
       // To allow people with long generators to only convert a subset, stop
       // consuming at size.
       while ((item = PyIter_Next(iter)) && i < size) {
-	OwnedRef ref(item);
-	RETURN_NOT_OK(static_cast<Derived*>(this)->AppendItem(ref));
-	++i;
+        OwnedRef ref(item);
+        RETURN_NOT_OK(static_cast<Derived*>(this)->AppendItem(ref));
+        ++i;
       }
       if (size != i) {
-	RETURN_NOT_OK(this->typed_builder_->Resize(i));
+        RETURN_NOT_OK(this->typed_builder_->Resize(i));
       }
     } else {
       return Status::TypeError("Object is not a sequence or iterable");
@@ -365,24 +385,33 @@ class TypedConverterVisitor : public TypedConverter<BuilderType> {
   virtual Status AppendItem(const OwnedRef& item) = 0;
 };
 
-class BoolConverter : public TypedConverterVisitor<
-  BooleanBuilder, BoolConverter> {
+class NullConverter : public TypedConverterVisitor<NullBuilder, NullConverter> {
+ public:
+  inline Status AppendItem(const OwnedRef& item) {
+    if (item.obj() == Py_None) {
+      return typed_builder_->AppendNull();
+    } else {
+      return Status::Invalid("NullConverter: passed non-None value");
+    }
+  }
+};
+
+class BoolConverter : public TypedConverterVisitor<BooleanBuilder, BoolConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     if (item.obj() == Py_None) {
       return typed_builder_->AppendNull();
     } else {
       if (item.obj() == Py_True) {
-	return typed_builder_->Append(true);
+        return typed_builder_->Append(true);
       } else {
-	return typed_builder_->Append(false);
+        return typed_builder_->Append(false);
       }
     }
   }
 };
 
-class Int64Converter : public TypedConverterVisitor<
-  Int64Builder, Int64Converter> {
+class Int64Converter : public TypedConverterVisitor<Int64Builder, Int64Converter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     int64_t val;
@@ -396,8 +425,7 @@ class Int64Converter : public TypedConverterVisitor<
   }
 };
 
-class DateConverter : public TypedConverterVisitor<
-  Date64Builder, DateConverter> {
+class DateConverter : public TypedConverterVisitor<Date64Builder, DateConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     if (item.obj() == Py_None) {
@@ -409,22 +437,21 @@ class DateConverter : public TypedConverterVisitor<
   }
 };
 
-class TimestampConverter : public TypedConverterVisitor<
-  Date64Builder, TimestampConverter> {
+class TimestampConverter
+    : public TypedConverterVisitor<Date64Builder, TimestampConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     if (item.obj() == Py_None) {
       return typed_builder_->AppendNull();
     } else {
       PyDateTime_DateTime* pydatetime =
-	reinterpret_cast<PyDateTime_DateTime*>(item.obj());
+          reinterpret_cast<PyDateTime_DateTime*>(item.obj());
       return typed_builder_->Append(PyDateTime_to_us(pydatetime));
     }
   }
 };
 
-class DoubleConverter : public TypedConverterVisitor<
-  DoubleBuilder, DoubleConverter> {
+class DoubleConverter : public TypedConverterVisitor<DoubleBuilder, DoubleConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     double val;
@@ -438,8 +465,7 @@ class DoubleConverter : public TypedConverterVisitor<
   }
 };
 
-class BytesConverter : public TypedConverterVisitor<
-  BinaryBuilder, BytesConverter> {
+class BytesConverter : public TypedConverterVisitor<BinaryBuilder, BytesConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     PyObject* bytes_obj;
@@ -457,7 +483,10 @@ class BytesConverter : public TypedConverterVisitor<
     } else if (PyBytes_Check(item.obj())) {
       bytes_obj = item.obj();
     } else {
-      return InvalidConversion(item.obj(), "bytes");
+      std::stringstream ss;
+      ss << "Error converting to Binary type: ";
+      RETURN_NOT_OK(InvalidConversion(item.obj(), "bytes", &ss));
+      return Status::Invalid(ss.str());
     }
     // No error checking
     length = PyBytes_GET_SIZE(bytes_obj);
@@ -466,14 +495,15 @@ class BytesConverter : public TypedConverterVisitor<
   }
 };
 
-class FixedWidthBytesConverter : public TypedConverterVisitor<
-  FixedSizeBinaryBuilder, FixedWidthBytesConverter> {
+class FixedWidthBytesConverter
+    : public TypedConverterVisitor<FixedSizeBinaryBuilder, FixedWidthBytesConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     PyObject* bytes_obj;
     OwnedRef tmp;
-    Py_ssize_t expected_length = std::dynamic_pointer_cast<FixedSizeBinaryType>(
-        typed_builder_->type())->byte_width();
+    Py_ssize_t expected_length =
+        std::dynamic_pointer_cast<FixedSizeBinaryType>(typed_builder_->type())
+            ->byte_width();
     if (item.obj() == Py_None) {
       RETURN_NOT_OK(typed_builder_->AppendNull());
       return Status::OK();
@@ -484,17 +514,19 @@ class FixedWidthBytesConverter : public TypedConverterVisitor<
     } else if (PyBytes_Check(item.obj())) {
       bytes_obj = item.obj();
     } else {
-      return InvalidConversion(item.obj(), "bytes");
+      std::stringstream ss;
+      ss << "Error converting to FixedSizeBinary type: ";
+      RETURN_NOT_OK(InvalidConversion(item.obj(), "bytes", &ss));
+      return Status::Invalid(ss.str());
     }
     // No error checking
     RETURN_NOT_OK(CheckPythonBytesAreFixedLength(bytes_obj, expected_length));
     return typed_builder_->Append(
-	reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(bytes_obj)));
+        reinterpret_cast<const uint8_t*>(PyBytes_AS_STRING(bytes_obj)));
   }
 };
 
-class UTF8Converter : public TypedConverterVisitor<
-  StringBuilder, UTF8Converter> {
+class UTF8Converter : public TypedConverterVisitor<StringBuilder, UTF8Converter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     PyObject* bytes_obj;
@@ -502,14 +534,24 @@ class UTF8Converter : public TypedConverterVisitor<
     const char* bytes;
     Py_ssize_t length;
 
-    if (item.obj() == Py_None) {
+    PyObject* obj = item.obj();
+    if (obj == Py_None) {
       return typed_builder_->AppendNull();
-    } else if (!PyUnicode_Check(item.obj())) {
-      return Status::Invalid("Non-unicode value encountered");
+    } else if (PyBytes_Check(obj)) {
+      tmp.reset(
+          PyUnicode_FromStringAndSize(PyBytes_AS_STRING(obj), PyBytes_GET_SIZE(obj)));
+      RETURN_IF_PYERROR();
+      bytes_obj = obj;
+    } else if (!PyUnicode_Check(obj)) {
+      PyObjectStringify stringified(obj);
+      std::stringstream ss;
+      ss << "Non bytes/unicode value encountered: " << stringified.bytes;
+      return Status::Invalid(ss.str());
+    } else {
+      tmp.reset(PyUnicode_AsUTF8String(obj));
+      RETURN_IF_PYERROR();
+      bytes_obj = tmp.obj();
     }
-    tmp.reset(PyUnicode_AsUTF8String(item.obj()));
-    RETURN_IF_PYERROR();
-    bytes_obj = tmp.obj();
 
     // No error checking
     length = PyBytes_GET_SIZE(bytes_obj);
@@ -518,19 +560,17 @@ class UTF8Converter : public TypedConverterVisitor<
   }
 };
 
-class ListConverter : public TypedConverterVisitor<
-  ListBuilder, ListConverter> {
+class ListConverter : public TypedConverterVisitor<ListBuilder, ListConverter> {
  public:
-  Status Init(const std::shared_ptr<ArrayBuilder>& builder) override;
+  Status Init(ArrayBuilder* builder) override;
 
-  inline Status AppendItem(const OwnedRef& item) {
+  inline Status AppendItem(const OwnedRef& item) override {
     if (item.obj() == Py_None) {
       return typed_builder_->AppendNull();
     } else {
-      typed_builder_->Append();
+      RETURN_NOT_OK(typed_builder_->Append());
       PyObject* item_obj = item.obj();
-      int64_t list_size =
-	static_cast<int64_t>(PySequence_Size(item_obj));
+      int64_t list_size = static_cast<int64_t>(PySequence_Size(item_obj));
       return value_converter_->AppendData(item_obj, list_size);
     }
   }
@@ -539,16 +579,18 @@ class ListConverter : public TypedConverterVisitor<
   std::shared_ptr<SeqConverter> value_converter_;
 };
 
-#define DECIMAL_CONVERT_CASE(bit_width, item, builder)        \
-  case bit_width: {                                           \
-    arrow::decimal::Decimal##bit_width out;                   \
-    RETURN_NOT_OK(PythonDecimalToArrowDecimal((item), &out)); \
-    return ((builder)->Append(out));                          \
-    break;                                                    \
+#define DECIMAL_CONVERT_CASE(bit_width, item, builder)         \
+  case bit_width: {                                            \
+    arrow::decimal::Decimal##bit_width out;                    \
+    std::string string_out;                                    \
+    RETURN_NOT_OK(PythonDecimalToString((item), &string_out)); \
+    RETURN_NOT_OK(FromString(string_out, &out));               \
+    return ((builder)->Append(out));                           \
+    break;                                                     \
   }
 
-class DecimalConverter : public TypedConverterVisitor<
-  arrow::DecimalBuilder, DecimalConverter> {
+class DecimalConverter
+    : public TypedConverterVisitor<arrow::DecimalBuilder, DecimalConverter> {
  public:
   inline Status AppendItem(const OwnedRef& item) {
     /// Can the compiler figure out that the case statement below isn't necessary
@@ -560,11 +602,11 @@ class DecimalConverter : public TypedConverterVisitor<
     /// TODO(phillipc): Check for nan?
     if (item.obj() != Py_None) {
       switch (bit_width) {
-	  DECIMAL_CONVERT_CASE(32, item.obj(), typed_builder_)
-	  DECIMAL_CONVERT_CASE(64, item.obj(), typed_builder_)
-	  DECIMAL_CONVERT_CASE(128, item.obj(), typed_builder_)
-      default:
-	  return Status::OK();
+        DECIMAL_CONVERT_CASE(32, item.obj(), typed_builder_)
+        DECIMAL_CONVERT_CASE(64, item.obj(), typed_builder_)
+        DECIMAL_CONVERT_CASE(128, item.obj(), typed_builder_)
+        default:
+          return Status::OK();
       }
       RETURN_IF_PYERROR();
     } else {
@@ -578,6 +620,8 @@ class DecimalConverter : public TypedConverterVisitor<
 // Dynamic constructor for sequence converters
 std::shared_ptr<SeqConverter> GetConverter(const std::shared_ptr<DataType>& type) {
   switch (type->id()) {
+    case Type::NA:
+      return std::make_shared<NullConverter>();
     case Type::BOOL:
       return std::make_shared<BoolConverter>();
     case Type::INT64:
@@ -605,9 +649,9 @@ std::shared_ptr<SeqConverter> GetConverter(const std::shared_ptr<DataType>& type
   }
 }
 
-Status ListConverter::Init(const std::shared_ptr<ArrayBuilder>& builder) {
+Status ListConverter::Init(ArrayBuilder* builder) {
   builder_ = builder;
-  typed_builder_ = static_cast<ListBuilder*>(builder.get());
+  typed_builder_ = static_cast<ListBuilder*>(builder);
 
   value_converter_ =
       GetConverter(static_cast<ListType*>(builder->type().get())->value_type());
@@ -615,13 +659,11 @@ Status ListConverter::Init(const std::shared_ptr<ArrayBuilder>& builder) {
     return Status::NotImplemented("value type not implemented");
   }
 
-  value_converter_->Init(typed_builder_->value_builder());
-  return Status::OK();
+  return value_converter_->Init(typed_builder_->value_builder());
 }
 
-Status AppendPySequence(PyObject* obj, const std::shared_ptr<DataType>& type,
-			const std::shared_ptr<ArrayBuilder>& builder,
-			int64_t size) {
+Status AppendPySequence(PyObject* obj, int64_t size,
+                        const std::shared_ptr<DataType>& type, ArrayBuilder* builder) {
   PyDateTime_IMPORT;
   std::shared_ptr<SeqConverter> converter = GetConverter(type);
   if (converter == nullptr) {
@@ -629,12 +671,12 @@ Status AppendPySequence(PyObject* obj, const std::shared_ptr<DataType>& type,
     ss << "No type converter implemented for " << type->ToString();
     return Status::NotImplemented(ss.str());
   }
-  converter->Init(builder);
-
+  RETURN_NOT_OK(converter->Init(builder));
   return converter->AppendData(obj, size);
 }
 
 Status ConvertPySequence(PyObject* obj, MemoryPool* pool, std::shared_ptr<Array>* out) {
+  PyAcquireGIL lock;
   std::shared_ptr<DataType> type;
   int64_t size;
   RETURN_NOT_OK(InferArrowTypeAndSize(obj, &size, &type));
@@ -642,7 +684,8 @@ Status ConvertPySequence(PyObject* obj, MemoryPool* pool, std::shared_ptr<Array>
 }
 
 Status ConvertPySequence(PyObject* obj, MemoryPool* pool, std::shared_ptr<Array>* out,
-    const std::shared_ptr<DataType>& type, int64_t size) {
+                         const std::shared_ptr<DataType>& type, int64_t size) {
+  PyAcquireGIL lock;
   // Handle NA / NullType case
   if (type->id() == Type::NA) {
     out->reset(new NullArray(size));
@@ -650,16 +693,19 @@ Status ConvertPySequence(PyObject* obj, MemoryPool* pool, std::shared_ptr<Array>
   }
 
   // Give the sequence converter an array builder
-  std::shared_ptr<ArrayBuilder> builder;
+  std::unique_ptr<ArrayBuilder> builder;
   RETURN_NOT_OK(MakeBuilder(pool, type, &builder));
-  RETURN_NOT_OK(AppendPySequence(obj, type, builder, size));
+  RETURN_NOT_OK(AppendPySequence(obj, size, type, builder.get()));
   return builder->Finish(out);
 }
 
 Status ConvertPySequence(PyObject* obj, MemoryPool* pool, std::shared_ptr<Array>* out,
-    const std::shared_ptr<DataType>& type) {
+                         const std::shared_ptr<DataType>& type) {
   int64_t size;
-  RETURN_NOT_OK(InferArrowSize(obj, &size));
+  {
+    PyAcquireGIL lock;
+    RETURN_NOT_OK(InferArrowSize(obj, &size));
+  }
   return ConvertPySequence(obj, pool, out, type, size);
 }
 

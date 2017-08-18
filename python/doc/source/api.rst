@@ -67,7 +67,6 @@ Scalar Value Types
    :toctree: generated/
 
    NA
-   NAType
    Scalar
    ArrayValue
    BooleanValue
@@ -92,13 +91,14 @@ Scalar Value Types
 
 .. _api.array:
 
-Array Types and Constructors
-----------------------------
+.. currentmodule:: pyarrow.lib
+
+Array Types
+-----------
 
 .. autosummary::
    :toctree: generated/
 
-   array
    Array
    BooleanArray
    DictionaryArray
@@ -127,6 +127,8 @@ Array Types and Constructors
 
 .. _api.table:
 
+.. currentmodule:: pyarrow
+
 Tables and Record Batches
 -------------------------
 
@@ -137,7 +139,6 @@ Tables and Record Batches
    Column
    RecordBatch
    Table
-   get_record_batch_size
 
 .. _api.tensor:
 
@@ -148,9 +149,6 @@ Tensor type and Functions
    :toctree: generated/
 
    Tensor
-   write_tensor
-   get_tensor_size
-   read_tensor
 
 .. _api.io:
 
@@ -169,6 +167,18 @@ Input / Output and Shared Memory
    create_memory_map
    PythonFile
 
+File Systems
+------------
+
+.. autosummary::
+   :toctree: generated/
+
+   hdfs.connect
+   LocalFileSystem
+
+.. class:: HadoopFileSystem
+   :noindex:
+
 .. _api.ipc:
 
 Interprocess Communication and Messaging
@@ -177,12 +187,20 @@ Interprocess Communication and Messaging
 .. autosummary::
    :toctree: generated/
 
+   Message
+   MessageReader
    RecordBatchFileReader
    RecordBatchFileWriter
    RecordBatchStreamReader
    RecordBatchStreamWriter
    open_file
    open_stream
+   read_message
+   read_record_batch
+   get_record_batch_size
+   read_tensor
+   write_tensor
+   get_tensor_size
 
 .. _api.memory_pool:
 
@@ -199,6 +217,8 @@ Memory Pools
 
 .. _api.type_classes:
 
+.. currentmodule:: pyarrow.lib
+
 Type Classes
 ------------
 
@@ -206,14 +226,22 @@ Type Classes
    :toctree: generated/
 
    DataType
-   DecimalType
-   DictionaryType
-   FixedSizeBinaryType
-   Time32Type
-   Time64Type
-   TimestampType
    Field
    Schema
+
+.. currentmodule:: pyarrow.plasma
+
+.. _api.plasma:
+
+In-Memory Object Store
+----------------------
+
+.. autosummary::
+   :toctree: generated/
+
+   ObjectID
+   PlasmaClient
+   PlasmaBuffer
 
 .. currentmodule:: pyarrow.parquet
 
@@ -228,5 +256,8 @@ Apache Parquet
    ParquetDataset
    ParquetFile
    read_table
+   read_metadata
+   read_pandas
+   read_schema
    write_metadata
    write_table

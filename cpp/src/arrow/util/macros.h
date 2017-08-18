@@ -36,9 +36,23 @@
 #if defined(__GNUC__)
 #define ARROW_PREDICT_FALSE(x) (__builtin_expect(x, 0))
 #define ARROW_PREDICT_TRUE(x) (__builtin_expect(!!(x), 1))
-#else
+#define ARROW_NORETURN __attribute__((noreturn))
+#elif defined(_MSC_VER)
+#define ARROW_NORETURN __declspec(noreturn)
 #define ARROW_PREDICT_FALSE(x) x
 #define ARROW_PREDICT_TRUE(x) x
+#else
+#define ARROW_NORETURN
+#define ARROW_PREDICT_FALSE(x) x
+#define ARROW_PREDICT_TRUE(x) x
+#endif
+
+#if (defined(__GNUC__) || defined(__APPLE__))
+#define ARROW_MUST_USE_RESULT __attribute__((warn_unused_result))
+#elif defined(_MSC_VER)
+#define ARROW_MUST_USE_RESULT
+#else
+#define ARROW_MUST_USE_RESULT
 #endif
 
 #endif  // ARROW_UTIL_MACROS_H

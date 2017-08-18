@@ -38,24 +38,22 @@ class MessagingTest(object):
         return io.BytesIO()
 
     def _get_source(self):
-        return pa.BufferReader(self.sink.getvalue())
+        return self.sink.getvalue()
 
-    def write_batches(self):
+    def write_batches(self, num_batches=5):
         nrows = 5
         df = pd.DataFrame({
             'one': np.random.randn(nrows),
             'two': ['foo', np.nan, 'bar', 'bazbaz', 'qux']})
-
         batch = pa.RecordBatch.from_pandas(df)
 
         writer = self._get_writer(self.sink, batch.schema)
 
-        num_batches = 5
         frames = []
         batches = []
         for i in range(num_batches):
             unique_df = df.copy()
-            unique_df['one'] = np.random.randn(nrows)
+            unique_df['one'] = np.random.randn(len(df))
 
             batch = pa.RecordBatch.from_pandas(unique_df)
             writer.write_batch(batch)
@@ -63,7 +61,7 @@ class MessagingTest(object):
             batches.append(batch)
 
         writer.close()
-        return batches
+        return frames, batches
 
 
 class TestFile(MessagingTest, unittest.TestCase):
@@ -78,8 +76,8 @@ class TestFile(MessagingTest, unittest.TestCase):
             pa.open_file(buf)
 
     def test_simple_roundtrip(self):
-        batches = self.write_batches()
-        file_contents = self._get_source()
+        _, batches = self.write_batches()
+        file_contents = pa.BufferReader(self._get_source())
 
         reader = pa.open_file(file_contents)
 
@@ -89,16 +87,27 @@ class TestFile(MessagingTest, unittest.TestCase):
             # it works. Must convert back to DataFrame
             batch = reader.get_batch(i)
             assert batches[i].equals(batch)
+            assert reader.schema.equals(batches[0].schema)
 
     def test_read_all(self):
-        batches = self.write_batches()
-        file_contents = self._get_source()
+        _, batches = self.write_batches()
+        file_contents = pa.BufferReader(self._get_source())
 
         reader = pa.open_file(file_contents)
 
         result = reader.read_all()
         expected = pa.Table.from_batches(batches)
         assert result.equals(expected)
+
+    def test_read_pandas(self):
+        frames, _ = self.write_batches()
+
+        file_contents = pa.BufferReader(self._get_source())
+        reader = pa.open_file(file_contents)
+        result = reader.read_pandas()
+
+        expected = pd.concat(frames)
+        assert_frame_equal(result, expected)
 
 
 class TestStream(MessagingTest, unittest.TestCase):
@@ -111,9 +120,25 @@ class TestStream(MessagingTest, unittest.TestCase):
         with pytest.raises(pa.ArrowInvalid):
             pa.open_stream(buf)
 
+    def test_categorical_roundtrip(self):
+        df = pd.DataFrame({
+            'one': np.random.randn(5),
+            'two': pd.Categorical(['foo', np.nan, 'bar', 'foo', 'foo'],
+                                  categories=['foo', 'bar'],
+                                  ordered=True)
+        })
+        batch = pa.RecordBatch.from_pandas(df)
+        writer = self._get_writer(self.sink, batch.schema)
+        writer.write_batch(pa.RecordBatch.from_pandas(df))
+        writer.close()
+
+        table = (pa.open_stream(pa.BufferReader(self._get_source()))
+                 .read_all())
+        assert_frame_equal(table.to_pandas(), df)
+
     def test_simple_roundtrip(self):
-        batches = self.write_batches()
-        file_contents = self._get_source()
+        _, batches = self.write_batches()
+        file_contents = pa.BufferReader(self._get_source())
         reader = pa.open_stream(file_contents)
 
         assert reader.schema.equals(batches[0].schema)
@@ -129,13 +154,71 @@ class TestStream(MessagingTest, unittest.TestCase):
             reader.get_next_batch()
 
     def test_read_all(self):
-        batches = self.write_batches()
-        file_contents = self._get_source()
+        _, batches = self.write_batches()
+        file_contents = pa.BufferReader(self._get_source())
         reader = pa.open_stream(file_contents)
 
         result = reader.read_all()
         expected = pa.Table.from_batches(batches)
         assert result.equals(expected)
+
+
+class TestMessageReader(MessagingTest, unittest.TestCase):
+
+    def _get_example_messages(self):
+        _, batches = self.write_batches()
+        file_contents = self._get_source()
+        buf_reader = pa.BufferReader(file_contents)
+        reader = pa.MessageReader.open_stream(buf_reader)
+        return batches, list(reader)
+
+    def _get_writer(self, sink, schema):
+        return pa.RecordBatchStreamWriter(sink, schema)
+
+    def test_ctors_no_segfault(self):
+        with pytest.raises(TypeError):
+            repr(pa.Message())
+
+        with pytest.raises(TypeError):
+            repr(pa.MessageReader())
+
+    def test_message_reader(self):
+        _, messages = self._get_example_messages()
+
+        assert len(messages) == 6
+        assert messages[0].type == 'schema'
+        for msg in messages[1:]:
+            assert msg.type == 'record batch'
+
+    def test_serialize_read_message(self):
+        _, messages = self._get_example_messages()
+
+        msg = messages[0]
+        buf = msg.serialize()
+
+        restored = pa.read_message(buf)
+        restored2 = pa.read_message(pa.BufferReader(buf))
+        restored3 = pa.read_message(buf.to_pybytes())
+
+        assert msg.equals(restored)
+        assert msg.equals(restored2)
+        assert msg.equals(restored3)
+
+    def test_read_record_batch(self):
+        batches, messages = self._get_example_messages()
+
+        for batch, message in zip(batches, messages[1:]):
+            read_batch = pa.read_record_batch(message, batch.schema)
+            assert read_batch.equals(batch)
+
+    def test_read_pandas(self):
+        frames, _ = self.write_batches()
+        file_contents = pa.BufferReader(self._get_source())
+        reader = pa.open_stream(file_contents)
+        result = reader.read_pandas()
+
+        expected = pd.concat(frames)
+        assert_frame_equal(result, expected)
 
 
 class TestSocket(MessagingTest, unittest.TestCase):
@@ -199,7 +282,7 @@ class TestSocket(MessagingTest, unittest.TestCase):
 
     def test_simple_roundtrip(self):
         self.start_server(do_read_all=False)
-        writer_batches = self.write_batches()
+        _, writer_batches = self.write_batches()
         reader_schema, reader_batches = self.stop_and_get_result()
 
         assert reader_schema.equals(writer_batches[0].schema)
@@ -209,7 +292,7 @@ class TestSocket(MessagingTest, unittest.TestCase):
 
     def test_read_all(self):
         self.start_server(do_read_all=True)
-        writer_batches = self.write_batches()
+        _, writer_batches = self.write_batches()
         _, result = self.stop_and_get_result()
 
         expected = pa.Table.from_batches(writer_batches)
@@ -291,7 +374,7 @@ def test_pandas_serialize_round_trip_multi_index():
 
 
 @pytest.mark.xfail(
-    raises=TypeError,
+    raises=AssertionError,
     reason='Non string columns are not supported',
 )
 def test_pandas_serialize_round_trip_not_string_columns():

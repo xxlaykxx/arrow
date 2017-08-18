@@ -22,8 +22,10 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <string>
 
 #include "arrow/status.h"
+#include "arrow/util/bit-util.h"
 #include "arrow/util/macros.h"
 #include "arrow/util/visibility.h"
 
@@ -47,7 +49,8 @@ class ARROW_EXPORT Buffer {
  public:
   Buffer(const uint8_t* data, int64_t size)
       : is_mutable_(false), data_(data), size_(size), capacity_(size) {}
-  virtual ~Buffer();
+
+  virtual ~Buffer() = default;
 
   /// An offset into data that is owned by another buffer, but we want to be
   /// able to retain a valid pointer to it even after other shared_ptr's to the
@@ -70,7 +73,7 @@ class ARROW_EXPORT Buffer {
 
   /// Copy a section of the buffer into a new Buffer.
   Status Copy(int64_t start, int64_t nbytes, MemoryPool* pool,
-      std::shared_ptr<Buffer>* out) const;
+              std::shared_ptr<Buffer>* out) const;
 
   /// Copy a section of the buffer using the default memory pool into a new Buffer.
   Status Copy(int64_t start, int64_t nbytes, std::shared_ptr<Buffer>* out) const;
@@ -97,17 +100,28 @@ class ARROW_EXPORT Buffer {
   DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
+/// \brief Create Buffer referencing std::string memory
+///
+/// Warning: string instance must stay alive
+///
+/// \param str std::string instance
+/// \return std::shared_ptr<Buffer>
+static inline std::shared_ptr<Buffer> GetBufferFromString(const std::string& str) {
+  return std::make_shared<Buffer>(reinterpret_cast<const uint8_t*>(str.c_str()),
+                                  static_cast<int64_t>(str.size()));
+}
+
 /// Construct a view on passed buffer at the indicated offset and length. This
 /// function cannot fail and does not error checking (except in debug builds)
-static inline std::shared_ptr<Buffer> SliceBuffer(
-    const std::shared_ptr<Buffer>& buffer, int64_t offset, int64_t length) {
+static inline std::shared_ptr<Buffer> SliceBuffer(const std::shared_ptr<Buffer>& buffer,
+                                                  int64_t offset, int64_t length) {
   return std::make_shared<Buffer>(buffer, offset, length);
 }
 
 /// Construct a mutable buffer slice. If the parent buffer is not mutable, this
 /// will abort in debug builds
-std::shared_ptr<Buffer> ARROW_EXPORT SliceMutableBuffer(
-    const std::shared_ptr<Buffer>& buffer, int64_t offset, int64_t length);
+std::shared_ptr<Buffer> ARROW_EXPORT
+SliceMutableBuffer(const std::shared_ptr<Buffer>& buffer, int64_t offset, int64_t length);
 
 /// A Buffer whose contents can be mutated. May or may not own its data.
 class ARROW_EXPORT MutableBuffer : public Buffer {
@@ -173,8 +187,12 @@ class ARROW_EXPORT BufferBuilder {
   /// Resizes the buffer to the nearest multiple of 64 bytes per Layout.md
   Status Resize(int64_t elements) {
     // Resize(0) is a no-op
-    if (elements == 0) { return Status::OK(); }
-    if (capacity_ == 0) { buffer_ = std::make_shared<PoolBuffer>(pool_); }
+    if (elements == 0) {
+      return Status::OK();
+    }
+    if (capacity_ == 0) {
+      buffer_ = std::make_shared<PoolBuffer>(pool_);
+    }
     int64_t old_capacity = capacity_;
     RETURN_NOT_OK(buffer_->Resize(elements));
     capacity_ = buffer_->capacity();
@@ -186,32 +204,23 @@ class ARROW_EXPORT BufferBuilder {
   }
 
   Status Append(const uint8_t* data, int64_t length) {
-    if (capacity_ < length + size_) { RETURN_NOT_OK(Resize(length + size_)); }
+    if (capacity_ < length + size_) {
+      int64_t new_capacity = BitUtil::NextPower2(length + size_);
+      RETURN_NOT_OK(Resize(new_capacity));
+    }
     UnsafeAppend(data, length);
     return Status::OK();
   }
 
   // Advance pointer and zero out memory
   Status Advance(int64_t length) {
-    if (capacity_ < length + size_) { RETURN_NOT_OK(Resize(length + size_)); }
+    if (capacity_ < length + size_) {
+      int64_t new_capacity = BitUtil::NextPower2(length + size_);
+      RETURN_NOT_OK(Resize(new_capacity));
+    }
     memset(data_ + size_, 0, static_cast<size_t>(length));
     size_ += length;
     return Status::OK();
-  }
-
-  template <typename T>
-  Status Append(T arithmetic_value) {
-    static_assert(std::is_arithmetic<T>::value,
-        "Convenience buffer append only supports arithmetic types");
-    return Append(reinterpret_cast<uint8_t*>(&arithmetic_value), sizeof(T));
-  }
-
-  template <typename T>
-  Status Append(const T* arithmetic_values, int64_t num_elements) {
-    static_assert(std::is_arithmetic<T>::value,
-        "Convenience buffer append only supports arithmetic types");
-    return Append(
-        reinterpret_cast<const uint8_t*>(arithmetic_values), num_elements * sizeof(T));
   }
 
   // Unsafe methods don't check existing size
@@ -220,36 +229,67 @@ class ARROW_EXPORT BufferBuilder {
     size_ += length;
   }
 
-  template <typename T>
-  void UnsafeAppend(T arithmetic_value) {
-    static_assert(std::is_arithmetic<T>::value,
-        "Convenience buffer append only supports arithmetic types");
-    UnsafeAppend(reinterpret_cast<uint8_t*>(&arithmetic_value), sizeof(T));
+  Status Finish(std::shared_ptr<Buffer>* out) {
+    // Do not shrink to fit to avoid unneeded realloc
+    if (size_ > 0) {
+      RETURN_NOT_OK(buffer_->Resize(size_, false));
+    }
+    *out = buffer_;
+    Reset();
+    return Status::OK();
   }
 
-  template <typename T>
-  void UnsafeAppend(const T* arithmetic_values, int64_t num_elements) {
-    static_assert(std::is_arithmetic<T>::value,
-        "Convenience buffer append only supports arithmetic types");
-    UnsafeAppend(
-        reinterpret_cast<const uint8_t*>(arithmetic_values), num_elements * sizeof(T));
-  }
-
-  std::shared_ptr<Buffer> Finish() {
-    auto result = buffer_;
+  void Reset() {
     buffer_ = nullptr;
     capacity_ = size_ = 0;
-    return result;
   }
-  int64_t capacity() { return capacity_; }
-  int64_t length() { return size_; }
 
- private:
+  int64_t capacity() const { return capacity_; }
+  int64_t length() const { return size_; }
+  const uint8_t* data() const { return data_; }
+
+ protected:
   std::shared_ptr<PoolBuffer> buffer_;
   MemoryPool* pool_;
   uint8_t* data_;
   int64_t capacity_;
   int64_t size_;
+};
+
+template <typename T>
+class ARROW_EXPORT TypedBufferBuilder : public BufferBuilder {
+ public:
+  explicit TypedBufferBuilder(MemoryPool* pool) : BufferBuilder(pool) {}
+
+  Status Append(T arithmetic_value) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "Convenience buffer append only supports arithmetic types");
+    return BufferBuilder::Append(reinterpret_cast<uint8_t*>(&arithmetic_value),
+                                 sizeof(T));
+  }
+
+  Status Append(const T* arithmetic_values, int64_t num_elements) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "Convenience buffer append only supports arithmetic types");
+    return BufferBuilder::Append(reinterpret_cast<const uint8_t*>(arithmetic_values),
+                                 num_elements * sizeof(T));
+  }
+
+  void UnsafeAppend(T arithmetic_value) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "Convenience buffer append only supports arithmetic types");
+    BufferBuilder::UnsafeAppend(reinterpret_cast<uint8_t*>(&arithmetic_value), sizeof(T));
+  }
+
+  void UnsafeAppend(const T* arithmetic_values, int64_t num_elements) {
+    static_assert(std::is_arithmetic<T>::value,
+                  "Convenience buffer append only supports arithmetic types");
+    BufferBuilder::UnsafeAppend(reinterpret_cast<const uint8_t*>(arithmetic_values),
+                                num_elements * sizeof(T));
+  }
+
+  const T* data() const { return reinterpret_cast<const T*>(data_); }
+  int64_t length() const { return size_ / sizeof(T); }
 };
 
 /// Allocate a new mutable buffer from a memory pool
@@ -259,11 +299,11 @@ class ARROW_EXPORT BufferBuilder {
 /// \param[out] out the allocated buffer with padding
 ///
 /// \return Status message
-Status ARROW_EXPORT AllocateBuffer(
-    MemoryPool* pool, int64_t size, std::shared_ptr<MutableBuffer>* out);
+Status ARROW_EXPORT AllocateBuffer(MemoryPool* pool, int64_t size,
+                                   std::shared_ptr<MutableBuffer>* out);
 
-Status ARROW_EXPORT AllocateResizableBuffer(
-    MemoryPool* pool, int64_t size, std::shared_ptr<ResizableBuffer>* out);
+Status ARROW_EXPORT AllocateResizableBuffer(MemoryPool* pool, int64_t size,
+                                            std::shared_ptr<ResizableBuffer>* out);
 
 }  // namespace arrow
 

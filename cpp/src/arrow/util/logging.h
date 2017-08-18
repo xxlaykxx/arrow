@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <iostream>
 
+#include "arrow/util/macros.h"
+
 namespace arrow {
 
 // Stubbed versions of macros defined in glog/logging.h, intended for
@@ -50,32 +52,25 @@ namespace arrow {
 
 #define DCHECK(condition)      \
   ARROW_IGNORE_EXPR(condition) \
-  while (false)                \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_EQ(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_NE(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_LE(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_LT(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_GE(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 #define DCHECK_GT(val1, val2) \
   ARROW_IGNORE_EXPR(val1)     \
-  while (false)               \
-  ::arrow::internal::NullLog()
+  while (false) ::arrow::internal::NullLog()
 
 #else
 #define ARROW_DFATAL ARROW_FATAL
@@ -107,14 +102,20 @@ class CerrLog {
         has_logged_(false) {}
 
   virtual ~CerrLog() {
-    if (has_logged_) { std::cerr << std::endl; }
-    if (severity_ == ARROW_FATAL) { std::exit(1); }
+    if (has_logged_) {
+      std::cerr << std::endl;
+    }
+    if (severity_ == ARROW_FATAL) {
+      std::exit(1);
+    }
   }
 
   template <class T>
   CerrLog& operator<<(const T& t) {
-    has_logged_ = true;
-    std::cerr << t;
+    if (severity_ != ARROW_DEBUG) {
+      has_logged_ = true;
+      std::cerr << t;
+    }
     return *this;
   }
 
@@ -128,10 +129,12 @@ class CerrLog {
 class FatalLog : public CerrLog {
  public:
   explicit FatalLog(int /* severity */)  // NOLINT
-      : CerrLog(ARROW_FATAL){}           // NOLINT
+      : CerrLog(ARROW_FATAL) {}          // NOLINT
 
-            [[noreturn]] ~FatalLog() {
-    if (has_logged_) { std::cerr << std::endl; }
+  ARROW_NORETURN ~FatalLog() {
+    if (has_logged_) {
+      std::cerr << std::endl;
+    }
     std::exit(1);
   }
 };

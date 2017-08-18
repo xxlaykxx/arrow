@@ -48,12 +48,24 @@ class ArrowNotImplementedError(NotImplementedError, ArrowException):
     pass
 
 
+class PlasmaObjectExists(ArrowException):
+    pass
+
+
+class PlasmaObjectNonexistent(ArrowException):
+    pass
+
+
+class PlasmaStoreFull(ArrowException):
+    pass
+
+
 cdef int check_status(const CStatus& status) nogil except -1:
     if status.ok():
         return 0
 
     with gil:
-        message = frombytes(status.ToString())
+        message = frombytes(status.message())
         if status.IsInvalid():
             raise ArrowInvalid(message)
         elif status.IsIOError():
@@ -66,5 +78,12 @@ cdef int check_status(const CStatus& status) nogil except -1:
             raise ArrowNotImplementedError(message)
         elif status.IsTypeError():
             raise ArrowTypeError(message)
+        elif status.IsPlasmaObjectExists():
+            raise PlasmaObjectExists(message)
+        elif status.IsPlasmaObjectNonexistent():
+            raise PlasmaObjectNonexistent(message)
+        elif status.IsPlasmaStoreFull():
+            raise PlasmaStoreFull(message)
         else:
+            message = frombytes(status.ToString())
             raise ArrowException(message)

@@ -25,18 +25,12 @@ namespace arrow {
 
 constexpr int64_t kFinalSize = 256;
 
-#define ABORT_NOT_OK(s)                              \
-  do {                                               \
-    ::arrow::Status _s = (s);                        \
-    if (ARROW_PREDICT_FALSE(!_s.ok())) { exit(-1); } \
-  } while (0);
-
 static void BM_BuildPrimitiveArrayNoNulls(
     benchmark::State& state) {  // NOLINT non-const reference
   // 2 MiB block
   std::vector<int64_t> data(256 * 1024, 100);
   while (state.KeepRunning()) {
-    Int64Builder builder(default_memory_pool());
+    Int64Builder builder;
     for (int i = 0; i < kFinalSize; i++) {
       // Build up an array of 512 MiB in size
       ABORT_NOT_OK(builder.Append(data.data(), data.size(), nullptr));
@@ -44,8 +38,8 @@ static void BM_BuildPrimitiveArrayNoNulls(
     std::shared_ptr<Array> out;
     ABORT_NOT_OK(builder.Finish(&out));
   }
-  state.SetBytesProcessed(
-      state.iterations() * data.size() * sizeof(int64_t) * kFinalSize);
+  state.SetBytesProcessed(state.iterations() * data.size() * sizeof(int64_t) *
+                          kFinalSize);
 }
 
 static void BM_BuildVectorNoNulls(
@@ -59,8 +53,8 @@ static void BM_BuildVectorNoNulls(
       builder.insert(builder.end(), data.cbegin(), data.cend());
     }
   }
-  state.SetBytesProcessed(
-      state.iterations() * data.size() * sizeof(int64_t) * kFinalSize);
+  state.SetBytesProcessed(state.iterations() * data.size() * sizeof(int64_t) *
+                          kFinalSize);
 }
 
 static void BM_BuildAdaptiveIntNoNulls(
@@ -72,7 +66,7 @@ static void BM_BuildAdaptiveIntNoNulls(
     data.push_back(i);
   }
   while (state.KeepRunning()) {
-    AdaptiveIntBuilder builder(default_memory_pool());
+    AdaptiveIntBuilder builder;
     for (int64_t i = 0; i < size; i += chunk_size) {
       // Build up an array of 512 MiB in size
       ABORT_NOT_OK(builder.Append(data.data() + i, chunk_size, nullptr));
@@ -91,7 +85,7 @@ static void BM_BuildAdaptiveIntNoNullsScalarAppend(
     data.push_back(i);
   }
   while (state.KeepRunning()) {
-    AdaptiveIntBuilder builder(default_memory_pool());
+    AdaptiveIntBuilder builder;
     for (int64_t i = 0; i < size; i++) {
       ABORT_NOT_OK(builder.Append(data[i]));
     }
@@ -110,7 +104,7 @@ static void BM_BuildAdaptiveUIntNoNulls(
     data.push_back(i);
   }
   while (state.KeepRunning()) {
-    AdaptiveUIntBuilder builder(default_memory_pool());
+    AdaptiveUIntBuilder builder;
     for (int64_t i = 0; i < size; i += chunk_size) {
       // Build up an array of 512 MiB in size
       ABORT_NOT_OK(builder.Append(data.data() + i, chunk_size, nullptr));
@@ -121,6 +115,63 @@ static void BM_BuildAdaptiveUIntNoNulls(
   state.SetBytesProcessed(state.iterations() * data.size() * sizeof(int64_t));
 }
 
+static void BM_BuildDictionary(benchmark::State& state) {  // NOLINT non-const reference
+  const int64_t iterations = 1024;
+  while (state.KeepRunning()) {
+    DictionaryBuilder<Int64Type> builder(default_memory_pool());
+    for (int64_t i = 0; i < iterations; i++) {
+      for (int64_t j = 0; j < i; j++) {
+        ABORT_NOT_OK(builder.Append(j));
+      }
+    }
+    std::shared_ptr<Array> out;
+    ABORT_NOT_OK(builder.Finish(&out));
+  }
+  state.SetBytesProcessed(state.iterations() * iterations * (iterations + 1) / 2 *
+                          sizeof(int64_t));
+}
+
+static void BM_BuildStringDictionary(
+    benchmark::State& state) {  // NOLINT non-const reference
+  const int64_t iterations = 1024;
+  // Pre-render strings
+  std::vector<std::string> data;
+  for (int64_t i = 0; i < iterations; i++) {
+    std::stringstream ss;
+    ss << i;
+    data.push_back(ss.str());
+  }
+  while (state.KeepRunning()) {
+    StringDictionaryBuilder builder(default_memory_pool());
+    for (int64_t i = 0; i < iterations; i++) {
+      for (int64_t j = 0; j < i; j++) {
+        ABORT_NOT_OK(builder.Append(data[j]));
+      }
+    }
+    std::shared_ptr<Array> out;
+    ABORT_NOT_OK(builder.Finish(&out));
+  }
+  // Assuming a string here needs on average 2 bytes
+  state.SetBytesProcessed(state.iterations() * iterations * (iterations + 1) / 2 *
+                          sizeof(int32_t));
+}
+
+static void BM_BuildBinaryArray(benchmark::State& state) {  // NOLINT non-const reference
+  const int64_t iterations = 1 << 20;
+
+  std::string value = "1234567890";
+  while (state.KeepRunning()) {
+    BinaryBuilder builder;
+    for (int64_t i = 0; i < iterations; i++) {
+      ABORT_NOT_OK(builder.Append(value));
+    }
+    std::shared_ptr<Array> out;
+    ABORT_NOT_OK(builder.Finish(&out));
+  }
+  // Assuming a string here needs on average 2 bytes
+  state.SetBytesProcessed(state.iterations() * iterations * value.size());
+}
+
 BENCHMARK(BM_BuildPrimitiveArrayNoNulls)->Repetitions(3)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_BuildVectorNoNulls)->Repetitions(3)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_BuildAdaptiveIntNoNulls)->Repetitions(3)->Unit(benchmark::kMicrosecond);
@@ -128,5 +179,9 @@ BENCHMARK(BM_BuildAdaptiveIntNoNullsScalarAppend)
     ->Repetitions(3)
     ->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_BuildAdaptiveUIntNoNulls)->Repetitions(3)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BuildDictionary)->Repetitions(3)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_BuildStringDictionary)->Repetitions(3)->Unit(benchmark::kMicrosecond);
+
+BENCHMARK(BM_BuildBinaryArray)->Repetitions(3)->Unit(benchmark::kMicrosecond);
 
 }  // namespace arrow

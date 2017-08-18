@@ -75,8 +75,12 @@ def test_recordbatch_basics():
         ('c1', [-10, -5, 0, 5, 10])
     ])
 
+    with pytest.raises(IndexError):
+        # bounds checking
+        batch[2]
 
-def test_recordbatch_slice():
+
+def test_recordbatch_slice_getitem():
     data = [
         pa.array(range(5)),
         pa.array([-10, -5, 0, 5, 10])
@@ -86,7 +90,6 @@ def test_recordbatch_slice():
     batch = pa.RecordBatch.from_arrays(data, names)
 
     sliced = batch.slice(2)
-
     assert sliced.num_rows == 3
 
     expected = pa.RecordBatch.from_arrays(
@@ -106,6 +109,14 @@ def test_recordbatch_slice():
 
     with pytest.raises(IndexError):
         batch.slice(-1)
+
+    # Check __getitem__-based slicing
+    assert batch.slice(0, 0).equals(batch[:0])
+    assert batch.slice(0, 2).equals(batch[:2])
+    assert batch.slice(2, 2).equals(batch[2:4])
+    assert batch.slice(2, len(batch) - 2).equals(batch[2:])
+    assert batch.slice(len(batch) - 2, 2).equals(batch[-2:])
+    assert batch.slice(len(batch) - 4, 2).equals(batch[-4:-2])
 
 
 def test_recordbatch_from_to_pandas():
@@ -236,24 +247,6 @@ def test_concat_tables():
                                     names=('a', 'b'))
 
     assert result.equals(expected)
-
-
-def test_table_pandas():
-    data = [
-        pa.array(range(5)),
-        pa.array([-10, -5, 0, 5, 10])
-    ]
-    table = pa.Table.from_arrays(data, names=('a', 'b'))
-
-    # TODO: Use this part once from_pandas is implemented
-    # data = {'a': range(5), 'b': [-10, -5, 0, 5, 10]}
-    # df = pd.DataFrame(data)
-    # pa.Table.from_pandas(df)
-
-    df = table.to_pandas()
-    assert set(df.columns) == set(('a', 'b'))
-    assert df.shape == (5, 2)
-    assert df.loc[0, 'b'] == -10
 
 
 def test_table_negative_indexing():
