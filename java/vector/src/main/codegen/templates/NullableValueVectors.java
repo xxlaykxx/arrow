@@ -44,9 +44,10 @@ import org.apache.arrow.flatbuf.Precision;
  * NB: this class is automatically generated from ${.template_name} and ValueVectorTypes.tdd using FreeMarker.
  */
 @SuppressWarnings("unused")
-public final class ${className} extends BaseDataValueVector implements <#if type.major == "VarLen">VariableWidth<#else>FixedWidth</#if>Vector, NullableVector, FieldVector {
+public final class ${className} extends BaseValueVector implements <#if type.major == "VarLen">VariableWidth<#else>FixedWidth</#if>Vector, NullableVector, FieldVector {
   private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(${className}.class);
 
+protected final static byte[] emptyByteArray = new byte[]{};
   private final FieldReader reader = new ${minor.class}ReaderImpl(${className}.this);
 
   private final String bitsField = "$bits$";
@@ -217,9 +218,8 @@ public final class ${className} extends BaseDataValueVector implements <#if type
         + bits.getBufferSizeFor(valueCount);
   }
 
-  @Override
   public ArrowBuf getBuffer() {
-    return values.getBuffer();
+    return values.getDataBuffer();
   }
 
   @Override
@@ -286,7 +286,6 @@ public final class ${className} extends BaseDataValueVector implements <#if type
     bits.zeroVector();
     mutator.reset();
     accessor.reset();
-    super.reset();
   }
 
   @Override
@@ -314,12 +313,10 @@ public final class ${className} extends BaseDataValueVector implements <#if type
     accessor.reset();
   }
 
-  @Override
   public void reset() {
     bits.zeroVector();
     mutator.reset();
     accessor.reset();
-    super.reset();
   }
 
   /**
@@ -331,6 +328,11 @@ public final class ${className} extends BaseDataValueVector implements <#if type
     values.zeroVector();
   }
   </#if>
+
+  @Override
+  public TransferPair getTransferPair(String ref, BufferAllocator allocator, CallBack callBack) {
+        return getTransferPair(ref, allocator);
+  }
 
   @Override
   public TransferPair getTransferPair(BufferAllocator allocator){
@@ -431,6 +433,52 @@ public final class ${className} extends BaseDataValueVector implements <#if type
     bits.copyFromSafe(fromIndex, thisIndex, from.bits);
     values.copyFromSafe(fromIndex, thisIndex, from.values);
     <#if type.major == "VarLen">mutator.lastSet = thisIndex;</#if>
+  }
+
+  @Override
+  public long getValidityBufferAddress() {
+    /* address of the databuffer associated with the bitVector */
+    return (bits.getDataBuffer().memoryAddress());
+  }
+
+  @Override
+  public long getDataBufferAddress() {
+    /* address of the dataBuffer associated with the valueVector */
+    return (values.getDataBuffer().memoryAddress());
+  }
+
+  @Override
+  public long getOffsetBufferAddress() {
+    /* address of the dataBuffer associated with the offsetVector
+     * this operation is not supported for fixed-width vector types.
+     */
+    <#if type.major != "VarLen">
+        throw new UnsupportedOperationException();
+    <#else>
+        return (values.getOffsetAddr());
+    </#if>
+  }
+
+  @Override
+  public ArrowBuf getValidityBuffer() {
+    /* dataBuffer associated with the bitVector */
+    return (bits.getDataBuffer());
+  }
+
+  @Override
+  public ArrowBuf getDataBuffer() {
+    /* dataBuffer associated with the valueVector */
+    return (values.getDataBuffer());
+  }
+
+  @Override
+  public ArrowBuf getOffsetBuffer() {
+    /* dataBuffer associated with the offsetVector of the valueVector */
+    <#if type.major != "VarLen">
+        throw new UnsupportedOperationException();
+    <#else>
+        return (values.getOffsetBuffer());
+    </#if>
   }
 
   public final class Accessor extends BaseDataValueVector.BaseAccessor <#if type.major = "VarLen">implements VariableWidthVector.VariableWidthAccessor</#if> {
@@ -540,7 +588,7 @@ public final class ${className} extends BaseDataValueVector implements <#if type
 
     <#if type.major == "VarLen">
 
-    private void fillEmpties(int index){
+    public void fillEmpties(int index){
       final ${valuesName}.Mutator valuesMutator = values.getMutator();
       for (int i = lastSet + 1; i < index; i++) {
         valuesMutator.setSafe(i, emptyByteArray);
@@ -698,6 +746,22 @@ public final class ${className} extends BaseDataValueVector implements <#if type
     public void reset(){
       setCount = 0;
       <#if type.major = "VarLen">lastSet = -1;</#if>
+    }
+
+    public void setLastSet(int value) {
+      <#if type.major = "VarLen">
+        lastSet = value;
+      <#else>
+        throw new UnsupportedOperationException();
+      </#if>
+    }
+
+    public int getLastSet() {
+      <#if type.major != "VarLen">
+        throw new UnsupportedOperationException();
+      <#else>
+        return lastSet;
+      </#if>
     }
   }
 }

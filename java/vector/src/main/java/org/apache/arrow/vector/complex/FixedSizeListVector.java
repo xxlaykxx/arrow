@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  ******************************************************************************/
+
 package org.apache.arrow.vector.complex;
 
 import static java.util.Collections.singletonList;
@@ -240,7 +241,7 @@ public class FixedSizeListVector extends BaseValueVector implements FieldVector,
   public ArrowBuf[] getBuffers(boolean clear) {
     final ArrowBuf[] buffers = ObjectArrays.concat(bits.getBuffers(false), vector.getBuffers(false), ArrowBuf.class);
     if (clear) {
-      for (ArrowBuf buffer: buffers) {
+      for (ArrowBuf buffer : buffers) {
         buffer.retain();
       }
       clear();
@@ -267,7 +268,7 @@ public class FixedSizeListVector extends BaseValueVector implements FieldVector,
     // returned vector must have the same field
     if (!Objects.equals(vector.getField().getType(), type.getType())) {
       final String msg = String.format("Inner vector type mismatch. Requested type: [%s], actual type: [%s]",
-        type.getType(), vector.getField().getType());
+          type.getType(), vector.getField().getType());
       throw new SchemaChangeRuntimeException(msg);
     }
 
@@ -292,6 +293,36 @@ public class FixedSizeListVector extends BaseValueVector implements FieldVector,
     return vector;
   }
 
+  @Override
+  public long getValidityBufferAddress() {
+    return (bits.getDataBuffer().memoryAddress());
+  }
+
+  @Override
+  public long getDataBufferAddress() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public long getOffsetBufferAddress() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ArrowBuf getValidityBuffer() {
+    return (bits.getDataBuffer());
+  }
+
+  @Override
+  public ArrowBuf getDataBuffer() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public ArrowBuf getOffsetBuffer() {
+    throw new UnsupportedOperationException();
+  }
+
   public class Accessor extends BaseValueVector.BaseAccessor {
 
     @Override
@@ -301,7 +332,7 @@ public class FixedSizeListVector extends BaseValueVector implements FieldVector,
       }
       final List<Object> vals = new JsonStringArrayList<>(listSize);
       final ValueVector.Accessor valuesAccessor = vector.getAccessor();
-      for(int i = 0; i < listSize; i++) {
+      for (int i = 0; i < listSize; i++) {
         vals.add(valuesAccessor.getObject(index * listSize + i));
       }
       return vals;

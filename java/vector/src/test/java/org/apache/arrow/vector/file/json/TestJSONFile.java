@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.arrow.vector.file.json;
 
 import java.io.File;
@@ -25,6 +26,8 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.NullableMapVector;
+import org.apache.arrow.vector.dictionary.DictionaryProvider;
+import org.apache.arrow.vector.dictionary.DictionaryProvider.MapDictionaryProvider;
 import org.apache.arrow.vector.file.BaseFileTest;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
@@ -45,13 +48,13 @@ public class TestJSONFile extends BaseFileTest {
         BufferAllocator originalVectorAllocator = allocator.newChildAllocator("original vectors", 0, Integer.MAX_VALUE);
         MapVector parent = MapVector.empty("parent", originalVectorAllocator)) {
       writeComplexData(count, parent);
-      writeJSON(file, new VectorSchemaRoot(parent.getChild("root")));
+      writeJSON(file, new VectorSchemaRoot(parent.getChild("root")), null);
     }
 
     // read
     try (
         BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
-        ) {
+    ) {
       JsonFileReader reader = new JsonFileReader(file, readerAllocator);
       Schema schema = reader.start();
       LOGGER.debug("reading schema: " + schema);
@@ -74,13 +77,13 @@ public class TestJSONFile extends BaseFileTest {
       writeComplexData(count, parent);
       VectorSchemaRoot root = new VectorSchemaRoot(parent.getChild("root"));
       validateComplexContent(root.getRowCount(), root);
-      writeJSON(file, root);
+      writeJSON(file, root, null);
     }
   }
 
-  public void writeJSON(File file, VectorSchemaRoot root) throws IOException {
+  public void writeJSON(File file, VectorSchemaRoot root, DictionaryProvider provider) throws IOException {
     JsonFileWriter writer = new JsonFileWriter(file, JsonFileWriter.config().pretty(true));
-    writer.start(root.getSchema());
+    writer.start(root.getSchema(), provider);
     writer.write(root);
     writer.close();
   }
@@ -101,13 +104,13 @@ public class TestJSONFile extends BaseFileTest {
       VectorSchemaRoot root = new VectorSchemaRoot(parent.getChild("root"));
       validateUnionData(count, root);
 
-      writeJSON(file, root);
+      writeJSON(file, root, null);
     }
     // read
     try (
         BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
         BufferAllocator vectorAllocator = allocator.newChildAllocator("final vectors", 0, Integer.MAX_VALUE);
-        ) {
+    ) {
       JsonFileReader reader = new JsonFileReader(file, readerAllocator);
       Schema schema = reader.start();
       LOGGER.debug("reading schema: " + schema);
@@ -136,7 +139,7 @@ public class TestJSONFile extends BaseFileTest {
       VectorSchemaRoot root = new VectorSchemaRoot(parent.getChild("root"));
       validateDateTimeContent(count, root);
 
-      writeJSON(file, new VectorSchemaRoot(parent.getChild("root")));
+      writeJSON(file, new VectorSchemaRoot(parent.getChild("root")), null);
     }
 
     // read
@@ -156,10 +159,89 @@ public class TestJSONFile extends BaseFileTest {
   }
 
   @Test
+  public void testWriteReadDictionaryJSON() throws IOException {
+    File file = new File("target/mytest_dictionary.json");
+
+    // write
+    try (
+        BufferAllocator vectorAllocator = allocator.newChildAllocator("original vectors", 0, Integer.MAX_VALUE)
+    ) {
+      MapDictionaryProvider provider = new MapDictionaryProvider();
+
+      try (VectorSchemaRoot root = writeFlatDictionaryData(vectorAllocator, provider)) {
+        printVectors(root.getFieldVectors());
+        validateFlatDictionary(root, provider);
+        writeJSON(file, root, provider);
+      }
+
+      // Need to close dictionary vectors
+      for (long id : provider.getDictionaryIds()) {
+        provider.lookup(id).getVector().close();
+      }
+    }
+
+    // read
+    try (
+        BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
+    ) {
+      JsonFileReader reader = new JsonFileReader(file, readerAllocator);
+      Schema schema = reader.start();
+      LOGGER.debug("reading schema: " + schema);
+
+      // initialize vectors
+      try (VectorSchemaRoot root = reader.read();) {
+        validateFlatDictionary(root, reader);
+      }
+      reader.close();
+    }
+  }
+
+  @Test
+  public void testWriteReadNestedDictionaryJSON() throws IOException {
+    File file = new File("target/mytest_dict_nested.json");
+
+    // data being written:
+    // [['foo', 'bar'], ['foo'], ['bar']] -> [[0, 1], [0], [1]]
+
+    // write
+    try (
+        BufferAllocator vectorAllocator = allocator.newChildAllocator("original vectors", 0, Integer.MAX_VALUE)
+    ) {
+      MapDictionaryProvider provider = new MapDictionaryProvider();
+
+      try (VectorSchemaRoot root = writeNestedDictionaryData(vectorAllocator, provider)) {
+        printVectors(root.getFieldVectors());
+        validateNestedDictionary(root, provider);
+        writeJSON(file, root, provider);
+      }
+
+      // Need to close dictionary vectors
+      for (long id : provider.getDictionaryIds()) {
+        provider.lookup(id).getVector().close();
+      }
+    }
+
+    // read
+    try (
+        BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
+    ) {
+      JsonFileReader reader = new JsonFileReader(file, readerAllocator);
+      Schema schema = reader.start();
+      LOGGER.debug("reading schema: " + schema);
+
+      // initialize vectors
+      try (VectorSchemaRoot root = reader.read();) {
+        validateNestedDictionary(root, reader);
+      }
+      reader.close();
+    }
+  }
+
+  @Test
   public void testSetStructLength() throws IOException {
     File file = new File("../../integration/data/struct_example.json");
     try (
-            BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
+        BufferAllocator readerAllocator = allocator.newChildAllocator("reader", 0, Integer.MAX_VALUE);
     ) {
       JsonFileReader reader = new JsonFileReader(file, readerAllocator);
       Schema schema = reader.start();

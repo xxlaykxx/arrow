@@ -17,13 +17,12 @@
 
 from pyarrow.includes.common cimport *
 from pyarrow.includes.libarrow cimport *
+from pyarrow.includes.libarrow cimport CStatus
 from cpython cimport PyObject
+from libcpp cimport nullptr
 
 cdef extern from "Python.h":
     int PySlice_Check(object)
-
-
-from pyarrow.includes.libarrow cimport CStatus
 
 
 cdef int check_status(const CStatus& status) nogil except -1
@@ -49,6 +48,11 @@ cdef class DataType:
         CDataType* type
 
     cdef void init(self, const shared_ptr[CDataType]& type)
+
+
+cdef class ListType(DataType):
+    cdef:
+        const CListType* list_type
 
 
 cdef class DictionaryType(DataType):

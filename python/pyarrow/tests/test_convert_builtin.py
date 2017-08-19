@@ -16,11 +16,14 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import pytest
+
 from pyarrow.compat import unittest, u  # noqa
 import pyarrow as pa
 
 import datetime
 import decimal
+
 
 class StrangeIterable:
     def __init__(self, lst):
@@ -28,6 +31,7 @@ class StrangeIterable:
 
     def __iter__(self):
         return self.lst.__iter__()
+
 
 class TestConvertIterable(unittest.TestCase):
 
@@ -60,6 +64,7 @@ class TestLimitedConvertIterator(unittest.TestCase):
         arr1 = pa.array(iter(range(3)), type=pa.int64(), size=10)
         arr2 = pa.array((0, 1, 2))
         assert arr1.equals(arr2)
+
 
 class TestConvertSequence(unittest.TestCase):
 
@@ -136,6 +141,17 @@ class TestConvertSequence(unittest.TestCase):
         assert arr.null_count == 1
         assert arr.type == pa.binary()
         assert arr.to_pylist() == [b'foo', u1, None]
+
+    def test_utf8_to_unicode(self):
+        # ARROW-1225
+        data = [b'foo', None, b'bar']
+        arr = pa.array(data, type=pa.string())
+        assert arr[0].as_py() == u'foo'
+
+        # test a non-utf8 unicode string
+        val = (u'mañana').encode('utf-16-le')
+        with pytest.raises(pa.ArrowException):
+            pa.array([val], type=pa.string())
 
     def test_fixed_size_bytes(self):
         data = [b'foof', None, b'barb', b'2346']
@@ -258,3 +274,20 @@ class TestConvertSequence(unittest.TestCase):
         assert arr.null_count == 0
         assert arr.type == pa.null()
         assert arr.to_pylist() == []
+
+    def test_structarray(self):
+        ints = pa.array([None, 2, 3], type=pa.int64())
+        strs = pa.array([u'a', None, u'c'], type=pa.string())
+        bools = pa.array([True, False, None], type=pa.bool_())
+        arr = pa.StructArray.from_arrays(
+            ['ints', 'strs', 'bools'],
+            [ints, strs, bools])
+
+        expected = [
+            {'ints': None, 'strs': u'a', 'bools': True},
+            {'ints': 2, 'strs': None, 'bools': False},
+            {'ints': 3, 'strs': u'c', 'bools': None},
+        ]
+
+        pylist = arr.to_pylist()
+        assert pylist == expected, (pylist, expected)

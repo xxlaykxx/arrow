@@ -15,10 +15,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.arrow.vector.dictionary;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public interface DictionaryProvider {
 
@@ -30,13 +32,17 @@ public interface DictionaryProvider {
 
     public MapDictionaryProvider(Dictionary... dictionaries) {
       this.map = new HashMap<>();
-      for (Dictionary dictionary: dictionaries) {
+      for (Dictionary dictionary : dictionaries) {
         put(dictionary);
       }
     }
 
     public void put(Dictionary dictionary) {
       map.put(dictionary.getEncoding().getId(), dictionary);
+    }
+
+    public final Set<Long> getDictionaryIds() {
+      return map.keySet();
     }
 
     @Override

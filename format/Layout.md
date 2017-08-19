@@ -1,15 +1,20 @@
 <!---
-  Licensed under the Apache License, Version 2.0 (the "License");
-  you may not use this file except in compliance with the License.
-  You may obtain a copy of the License at
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
-  Unless required by applicable law or agreed to in writing, software
-  distributed under the License is distributed on an "AS IS" BASIS,
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  See the License for the specific language governing permissions and
-  limitations under the License. See accompanying LICENSE file.
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
 -->
 
 # Arrow: Physical memory layout
@@ -57,7 +62,11 @@ Base requirements
   linearly in the nesting level
 * Capable of representing fully-materialized and decoded / decompressed [Parquet][5]
   data
-* All contiguous memory buffers are aligned at 64-byte boundaries and padded to a multiple of 64 bytes.
+* It is required to have all the contiguous memory buffers in an IPC payload
+  aligned at 8-byte boundaries. In other words, each buffer must start at
+  an aligned 8-byte offset.
+* The general recommendation is to align the buffers at 64-byte boundary, but
+  this is not absolutely necessary.
 * Any relative type can have null slots
 * Arrays are immutable once created. Implementations can provide APIs to mutate
   an array, but applying mutations will require a new array data structure to
@@ -103,21 +112,23 @@ via byte swapping.
 
 ## Alignment and Padding
 
-As noted above, all buffers are intended to be aligned in memory at 64 byte
-boundaries and padded to a length that is a multiple of 64 bytes.  The alignment
-requirement follows best practices for optimized memory access:
+As noted above, all buffers must be aligned in memory at 8-byte boundaries and padded
+to a length that is a multiple of 8 bytes.  The alignment requirement follows best
+practices for optimized memory access:
 
 * Elements in numeric arrays will be guaranteed to be retrieved via aligned access.
 * On some architectures alignment can help limit partially used cache lines.
 * 64 byte alignment is recommended by the [Intel performance guide][2] for
-data-structures over 64 bytes (which will be a common case for Arrow Arrays).
+  data-structures over 64 bytes (which will be a common case for Arrow Arrays).
 
-Requiring padding to a multiple of 64 bytes allows for using [SIMD][4] instructions
+Recommending padding to a multiple of 64 bytes allows for using [SIMD][4] instructions
 consistently in loops without additional conditional checks.
-This should allow for simpler and more efficient code.
+This should allow for simpler, efficient and CPU cache-friendly code.
 The specific padding length was chosen because it matches the largest known
-SIMD instruction registers available as of April 2016 (Intel AVX-512).
-Guaranteed padding can also allow certain compilers
+SIMD instruction registers available as of April 2016 (Intel AVX-512). In other
+words, we can load the entire 64-byte buffer into a 512-bit wide SIMD register
+and get data-level parallelism on all the columnar values packed into the 64-byte
+buffer. Guaranteed padding can also allow certain compilers
 to generate more optimized code directly (e.g. One can safely use Intel's
 `-qopt-assume-safe-padding`).
 
@@ -384,37 +395,42 @@ The layout for [{'joe', 1}, {null, 2}, null, {'mark', 4}] would be:
 
 * Children arrays:
   * field-0 array (`List<char>`):
-    * Length: 4, Null count: 1
+    * Length: 4, Null count: 2
     * Null bitmap buffer:
 
       | Byte 0 (validity bitmap) | Bytes 1-63            |
       |--------------------------|-----------------------|
-      | 00001101                 | 0 (padding)           |
+      | 00001001                 | 0 (padding)           |
 
     * Offsets buffer:
 
       | Bytes 0-19     |
       |----------------|
-      | 0, 3, 3, 6, 10 |
+      | 0, 3, 3, 3, 7  |
 
      * Values array:
-        * Length: 10, Null count: 0
+        * Length: 7, Null count: 0
         * Null bitmap buffer: Not required
 
         * Value buffer:
 
-          | Bytes 0-9      |
+          | Bytes 0-6      |
           |----------------|
-          | joebobmark     |
+          | joemark        |
 
   * field-1 array (int32 array):
-    * Length: 4, Null count: 0
-    * Null bitmap buffer: Not required
+    * Length: 4, Null count: 1
+    * Null bitmap buffer:
+
+      | Byte 0 (validity bitmap) | Bytes 1-63            |
+      |--------------------------|-----------------------|
+      | 00001011                 | 0 (padding)           |
+
     * Value Buffer:
 
-      | Bytes 0-15     |
-      |----------------|
-      | 1, 2, 3, 4     |
+      |Bytes 0-3   | Bytes 4-7   | Bytes 8-11  | Bytes 12-15 | Bytes 16-63 |
+      |------------|-------------|-------------|-------------|-------------|
+      | 1          | 2           | unspecified | 4           | unspecified |
 
 ```
 
@@ -547,7 +563,7 @@ will have the following layout:
 
       |Bytes 0-3   | Bytes 4-7   | Bytes 8-11  | Bytes 12-15 | Bytes 16-19 | Bytes 20-23  | Bytes 24-63           |
       |------------|-------------|-------------|-------------|-------------|--------------|-----------------------|
-      | 1          | unspecified | unspecified | unspecified | 4           |  unspecified | unspecified (padding) |
+      | 5          | unspecified | unspecified | unspecified | 4           |  unspecified | unspecified (padding) |
 
   * u1 (float):
     * Length: 6, Null count: 4
@@ -600,7 +616,7 @@ the the types array indicates that a slot contains a different type at the index
 ## Dictionary encoding
 
 When a field is dictionary encoded, the values are represented by an array of Int32 representing the index of the value in the dictionary.
-The Dictionary is received as a DictionaryBacth whose id is referenced by a dictionary attribute defined in the metadata (Message.fbs) in the Field table.
+The Dictionary is received as a DictionaryBatch whose id is referenced by a dictionary attribute defined in the metadata ([Message.fbs][7]) in the Field table.
 The dictionary has the same layout as the type of the field would dictate. Each entry in the dictionary can be accessed by its index in the DictionaryBatch.
 When a Schema references a Dictionary id, it must send a DictionaryBatch for this id before any RecordBatch.
 
@@ -644,3 +660,4 @@ Apache Drill Documentation - [Value Vectors][6]
 [4]: https://software.intel.com/en-us/node/600110
 [5]: https://parquet.apache.org/documentation/latest/
 [6]: https://drill.apache.org/docs/value-vectors/
+[7]: https://github.com/apache/arrow/blob/master/format/Message.fbs

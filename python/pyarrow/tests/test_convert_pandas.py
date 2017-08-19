@@ -18,10 +18,12 @@
 
 from collections import OrderedDict
 
-import pytest
-import datetime
+from datetime import datetime, date, time
 import unittest
 import decimal
+import json
+
+import pytest
 
 import numpy as np
 
@@ -102,12 +104,15 @@ class TestPandasConversion(unittest.TestCase):
         df = pd.DataFrame({'a': [None, None, None]})
         self._check_pandas_roundtrip(df)
 
-
     def test_all_none_category(self):
         df = pd.DataFrame({'a': [None, None, None]})
         df['a'] = df['a'].astype('category')
         self._check_pandas_roundtrip(df)
 
+    def test_non_string_columns(self):
+        df = pd.DataFrame({0: [1, 2, 3]})
+        table = pa.Table.from_pandas(df)
+        assert table.column(0).name == '0'
 
     def test_float_no_nulls(self):
         data = {}
@@ -284,6 +289,20 @@ class TestPandasConversion(unittest.TestCase):
         expected = pd.DataFrame({'strings': values2})
         self._check_pandas_roundtrip(df, expected)
 
+    @pytest.mark.large_memory
+    def test_bytes_exceed_2gb(self):
+        val = 'x' * (1 << 20)
+        df = pd.DataFrame({
+            'strings': np.array([val] * 4000, dtype=object)
+        })
+        arr = pa.Array.from_pandas(df['strings'])
+        assert isinstance(arr, pa.ChunkedArray)
+        assert arr.num_chunks == 2
+        arr = None
+
+        table = pa.Table.from_pandas(df)
+        assert table[0].data.num_chunks == 2
+
     def test_fixed_size_bytes(self):
         values = [b'foo', None, b'bar', None, None, b'hey']
         df = pd.DataFrame({'strings': values})
@@ -308,7 +327,7 @@ class TestPandasConversion(unittest.TestCase):
                 '2006-01-13T12:34:56.432',
                 '2010-08-13T05:46:57.437'],
                 dtype='datetime64[ms]')
-            })
+        })
         field = pa.field('datetime64', pa.timestamp('ms'))
         schema = pa.schema([field])
         self._check_pandas_roundtrip(
@@ -323,7 +342,7 @@ class TestPandasConversion(unittest.TestCase):
                 '2006-01-13T12:34:56.432539784',
                 '2010-08-13T05:46:57.437699912'],
                 dtype='datetime64[ns]')
-            })
+        })
         field = pa.field('datetime64', pa.timestamp('ns'))
         schema = pa.schema([field])
         self._check_pandas_roundtrip(
@@ -332,6 +351,17 @@ class TestPandasConversion(unittest.TestCase):
             expected_schema=schema,
         )
 
+    def test_timestamps_to_ms_explicit_schema(self):
+        # ARROW-1328
+        df = pd.DataFrame({'datetime': [datetime(2017, 1, 1)]})
+        pa_type = pa.from_numpy_dtype(df['datetime'].dtype)
+
+        arr = pa.Array.from_pandas(df['datetime'], type=pa_type,
+                                   timestamps_to_ms=True)
+
+        tm.assert_almost_equal(df['datetime'].values.astype('M8[ms]'),
+                               arr.to_pandas())
+
     def test_timestamps_notimezone_nulls(self):
         df = pd.DataFrame({
             'datetime64': np.array([
@@ -339,7 +369,7 @@ class TestPandasConversion(unittest.TestCase):
                 None,
                 '2010-08-13T05:46:57.437'],
                 dtype='datetime64[ms]')
-            })
+        })
         field = pa.field('datetime64', pa.timestamp('ms'))
         schema = pa.schema([field])
         self._check_pandas_roundtrip(
@@ -354,7 +384,7 @@ class TestPandasConversion(unittest.TestCase):
                 None,
                 '2010-08-13T05:46:57.437699912'],
                 dtype='datetime64[ns]')
-            })
+        })
         field = pa.field('datetime64', pa.timestamp('ns'))
         schema = pa.schema([field])
         self._check_pandas_roundtrip(
@@ -370,7 +400,7 @@ class TestPandasConversion(unittest.TestCase):
                 '2006-01-13T12:34:56.432',
                 '2010-08-13T05:46:57.437'],
                 dtype='datetime64[ms]')
-            })
+        })
         df['datetime64'] = (df['datetime64'].dt.tz_localize('US/Eastern')
                             .to_frame())
         self._check_pandas_roundtrip(df, timestamps_to_ms=True)
@@ -383,17 +413,17 @@ class TestPandasConversion(unittest.TestCase):
                 '2006-01-13T12:34:56.432539784',
                 '2010-08-13T05:46:57.437699912'],
                 dtype='datetime64[ns]')
-            })
+        })
         df['datetime64'] = (df['datetime64'].dt.tz_localize('US/Eastern')
                             .to_frame())
         self._check_pandas_roundtrip(df, timestamps_to_ms=False)
 
     def test_date_infer(self):
         df = pd.DataFrame({
-            'date': [datetime.date(2000, 1, 1),
+            'date': [date(2000, 1, 1),
                      None,
-                     datetime.date(1970, 1, 1),
-                     datetime.date(2040, 2, 26)]})
+                     date(1970, 1, 1),
+                     date(2040, 2, 26)]})
         table = pa.Table.from_pandas(df, preserve_index=False)
         field = pa.field('date', pa.date32())
         schema = pa.schema([field])
@@ -405,10 +435,10 @@ class TestPandasConversion(unittest.TestCase):
 
     def test_date_objects_typed(self):
         arr = np.array([
-            datetime.date(2017, 4, 3),
+            date(2017, 4, 3),
             None,
-            datetime.date(2017, 4, 4),
-            datetime.date(2017, 4, 5)], dtype=object)
+            date(2017, 4, 4),
+            date(2017, 4, 5)], dtype=object)
 
         arr_i4 = np.array([17259, -1, 17260, 17261], dtype='int32')
         arr_i8 = arr_i4.astype('int64') * 86400000
@@ -432,7 +462,7 @@ class TestPandasConversion(unittest.TestCase):
         table_pandas = table.to_pandas()
 
         ex_values = (np.array(['2017-04-03', '2017-04-04', '2017-04-04',
-                              '2017-04-05'],
+                               '2017-04-05'],
                               dtype='datetime64[D]')
                      .astype('datetime64[ns]'))
         ex_values[1] = pd.NaT.value
@@ -451,7 +481,7 @@ class TestPandasConversion(unittest.TestCase):
         a1 = pa.Array.from_pandas(arr, type=t1)
         a2 = pa.Array.from_pandas(arr2, type=t2)
 
-        expected = datetime.date(2017, 4, 3)
+        expected = date(2017, 4, 3)
         assert a1[0].as_py() == expected
         assert a2[0].as_py() == expected
 
@@ -461,10 +491,10 @@ class TestPandasConversion(unittest.TestCase):
         # TODO(jreback): Pandas only support ns resolution
         # Arrow supports ??? for resolution
         df = pd.DataFrame({
-            'timedelta': np.arange(start=0, stop=3*86400000,
+            'timedelta': np.arange(start=0, stop=3 * 86400000,
                                    step=86400000,
                                    dtype='timedelta64[ms]')
-            })
+        })
         pa.Table.from_pandas(df)
 
     def test_column_of_arrays(self):
@@ -477,6 +507,23 @@ class TestPandasConversion(unittest.TestCase):
             field = schema.field_by_name(column)
             self._check_array_roundtrip(df[column], type=field.type)
 
+    def test_column_of_arrays_to_py(self):
+        # Test regression in ARROW-1199 not caught in above test
+        dtype = 'i1'
+        arr = np.array([
+            np.arange(10, dtype=dtype),
+            np.arange(5, dtype=dtype),
+            None,
+            np.arange(1, dtype=dtype)
+        ])
+        type_ = pa.list_(pa.int8())
+        parr = pa.Array.from_pandas(arr, type=type_)
+
+        assert parr[0].as_py() == list(range(10))
+        assert parr[1].as_py() == list(range(5))
+        assert parr[2].as_py() is None
+        assert parr[3].as_py() == [0]
+
     def test_column_of_lists(self):
         df, schema = dataframe_with_lists()
         self._check_pandas_roundtrip(df, schema=schema, expected_schema=schema)
@@ -486,6 +533,30 @@ class TestPandasConversion(unittest.TestCase):
         for column in df.columns:
             field = schema.field_by_name(column)
             self._check_array_roundtrip(df[column], type=field.type)
+
+    def test_column_of_lists_strided(self):
+        df, schema = dataframe_with_lists()
+        df = pd.concat([df] * 6, ignore_index=True)
+
+        arr = df['int64'].values[::3]
+        assert arr.strides[0] != 8
+
+        self._check_array_roundtrip(arr)
+
+    def test_nested_lists_all_none(self):
+        data = np.array([[None, None], None], dtype=object)
+
+        arr = pa.Array.from_pandas(data)
+        expected = pa.array(list(data))
+        assert arr.equals(expected)
+        assert arr.type == pa.list_(pa.null())
+
+        data2 = np.array([None, None, [None, None],
+                          np.array([None, None], dtype=object)],
+                         dtype=object)
+        arr = pa.Array.from_pandas(data2)
+        expected = pa.array([None, None, [None, None], [None, None]])
+        assert arr.equals(expected)
 
     def test_threaded_conversion(self):
         df = _alltypes_example()
@@ -500,6 +571,9 @@ class TestPandasConversion(unittest.TestCase):
         df = pd.DataFrame({'cat_strings': pd.Categorical(v1 * repeats),
                            'cat_ints': pd.Categorical(v2 * repeats),
                            'cat_binary': pd.Categorical(v3 * repeats),
+                           'cat_strings_ordered': pd.Categorical(
+                               v1 * repeats, categories=['bar', 'qux', 'foo'],
+                               ordered=True),
                            'ints': v2 * repeats,
                            'ints2': v2 * repeats,
                            'strings': v1 * repeats,
@@ -629,6 +703,95 @@ class TestPandasConversion(unittest.TestCase):
         df = converted.to_pandas()
         tm.assert_frame_equal(df, expected)
 
+    def test_pytime_from_pandas(self):
+        pytimes = [time(1, 2, 3, 1356),
+                   time(4, 5, 6, 1356)]
+
+        # microseconds
+        t1 = pa.time64('us')
+
+        aobjs = np.array(pytimes + [None], dtype=object)
+        parr = pa.Array.from_pandas(aobjs)
+        assert parr.type == t1
+        assert parr[0].as_py() == pytimes[0]
+        assert parr[1].as_py() == pytimes[1]
+        assert parr[2] is pa.NA
+
+        # DataFrame
+        df = pd.DataFrame({'times': aobjs})
+        batch = pa.RecordBatch.from_pandas(df)
+        assert batch[0].equals(parr)
+
+        # Test ndarray of int64 values
+        arr = np.array([_pytime_to_micros(v) for v in pytimes],
+                       dtype='int64')
+
+        a1 = pa.Array.from_pandas(arr, type=pa.time64('us'))
+        assert a1[0].as_py() == pytimes[0]
+
+        a2 = pa.Array.from_pandas(arr * 1000, type=pa.time64('ns'))
+        assert a2[0].as_py() == pytimes[0]
+
+        a3 = pa.Array.from_pandas((arr / 1000).astype('i4'),
+                                  type=pa.time32('ms'))
+        assert a3[0].as_py() == pytimes[0].replace(microsecond=1000)
+
+        a4 = pa.Array.from_pandas((arr / 1000000).astype('i4'),
+                                  type=pa.time32('s'))
+        assert a4[0].as_py() == pytimes[0].replace(microsecond=0)
+
+    def test_arrow_time_to_pandas(self):
+        pytimes = [time(1, 2, 3, 1356),
+                   time(4, 5, 6, 1356),
+                   time(0, 0, 0)]
+
+        expected = np.array(pytimes[:2] + [None])
+        expected_ms = np.array([x.replace(microsecond=1000)
+                                for x in pytimes[:2]] +
+                               [None])
+        expected_s = np.array([x.replace(microsecond=0)
+                               for x in pytimes[:2]] +
+                              [None])
+
+        arr = np.array([_pytime_to_micros(v) for v in pytimes],
+                       dtype='int64')
+        arr = np.array([_pytime_to_micros(v) for v in pytimes],
+                       dtype='int64')
+
+        null_mask = np.array([False, False, True], dtype=bool)
+
+        a1 = pa.Array.from_pandas(arr, mask=null_mask, type=pa.time64('us'))
+        a2 = pa.Array.from_pandas(arr * 1000, mask=null_mask,
+                                  type=pa.time64('ns'))
+
+        a3 = pa.Array.from_pandas((arr / 1000).astype('i4'), mask=null_mask,
+                                  type=pa.time32('ms'))
+        a4 = pa.Array.from_pandas((arr / 1000000).astype('i4'), mask=null_mask,
+                                  type=pa.time32('s'))
+
+        names = ['time64[us]', 'time64[ns]', 'time32[ms]', 'time32[s]']
+        batch = pa.RecordBatch.from_arrays([a1, a2, a3, a4], names)
+        arr = a1.to_pandas()
+        assert (arr == expected).all()
+
+        arr = a2.to_pandas()
+        assert (arr == expected).all()
+
+        arr = a3.to_pandas()
+        assert (arr == expected_ms).all()
+
+        arr = a4.to_pandas()
+        assert (arr == expected_s).all()
+
+        df = batch.to_pandas()
+        expected_df = pd.DataFrame({'time64[us]': expected,
+                                    'time64[ns]': expected,
+                                    'time32[ms]': expected_ms,
+                                    'time32[s]': expected_s},
+                                   columns=names)
+
+        tm.assert_frame_equal(df, expected_df)
+
     def test_all_nones(self):
         def _check_series(s):
             converted = pa.Array.from_pandas(s)
@@ -654,3 +817,142 @@ class TestPandasConversion(unittest.TestCase):
         table = pa.Table.from_pandas(df)
         result_df = table.to_pandas()
         tm.assert_frame_equal(result_df, df)
+
+    def test_partial_schema(self):
+        data = OrderedDict([
+            ('a', [0, 1, 2, 3, 4]),
+            ('b', np.array([-10, -5, 0, 5, 10], dtype=np.int32)),
+            ('c', [-10, -5, 0, 5, 10])
+        ])
+        df = pd.DataFrame(data)
+
+        partial_schema = pa.schema([
+            pa.field('a', pa.int64()),
+            pa.field('b', pa.int32())
+        ])
+
+        expected_schema = pa.schema([
+            pa.field('a', pa.int64()),
+            pa.field('b', pa.int32()),
+            pa.field('c', pa.int64())
+        ])
+
+        self._check_pandas_roundtrip(df, schema=partial_schema,
+                                     expected_schema=expected_schema)
+
+    def test_structarray(self):
+        ints = pa.array([None, 2, 3], type=pa.int64())
+        strs = pa.array([u'a', None, u'c'], type=pa.string())
+        bools = pa.array([True, False, None], type=pa.bool_())
+        arr = pa.StructArray.from_arrays(
+            ['ints', 'strs', 'bools'],
+            [ints, strs, bools])
+
+        expected = pd.Series([
+            {'ints': None, 'strs': u'a', 'bools': True},
+            {'ints': 2, 'strs': None, 'bools': False},
+            {'ints': 3, 'strs': u'c', 'bools': None},
+        ])
+
+        series = pd.Series(arr.to_pandas())
+        tm.assert_series_equal(series, expected)
+
+    def test_infer_lists(self):
+        data = OrderedDict([
+            ('nan_ints', [[None, 1], [2, 3]]),
+            ('ints', [[0, 1], [2, 3]]),
+            ('strs', [[None, u'b'], [u'c', u'd']]),
+            ('nested_strs', [[[None, u'b'], [u'c', u'd']], None])
+        ])
+        df = pd.DataFrame(data)
+
+        expected_schema = pa.schema([
+            pa.field('nan_ints', pa.list_(pa.int64())),
+            pa.field('ints', pa.list_(pa.int64())),
+            pa.field('strs', pa.list_(pa.string())),
+            pa.field('nested_strs', pa.list_(pa.list_(pa.string())))
+        ])
+
+        self._check_pandas_roundtrip(df, expected_schema=expected_schema)
+
+    def test_infer_numpy_array(self):
+        data = OrderedDict([
+            ('ints', [
+                np.array([0, 1], dtype=np.int64),
+                np.array([2, 3], dtype=np.int64)
+            ])
+        ])
+        df = pd.DataFrame(data)
+        expected_schema = pa.schema([
+            pa.field('ints', pa.list_(pa.int64()))
+        ])
+
+        self._check_pandas_roundtrip(df, expected_schema=expected_schema)
+
+    def test_metadata_with_mixed_types(self):
+        df = pd.DataFrame({'data': [b'some_bytes', u'some_unicode']})
+        table = pa.Table.from_pandas(df)
+        metadata = table.schema.metadata
+        assert b'mixed' not in metadata[b'pandas']
+
+        js = json.loads(metadata[b'pandas'].decode('utf8'))
+        data_column = js['columns'][0]
+        assert data_column['pandas_type'] == 'bytes'
+        assert data_column['numpy_type'] == 'object'
+
+    def test_list_metadata(self):
+        df = pd.DataFrame({'data': [[1], [2, 3, 4], [5] * 7]})
+        schema = pa.schema([pa.field('data', type=pa.list_(pa.int64()))])
+        table = pa.Table.from_pandas(df, schema=schema)
+        metadata = table.schema.metadata
+        assert b'mixed' not in metadata[b'pandas']
+
+        js = json.loads(metadata[b'pandas'].decode('utf8'))
+        data_column = js['columns'][0]
+        assert data_column['pandas_type'] == 'list[int64]'
+        assert data_column['numpy_type'] == 'object'
+
+    def test_decimal_metadata(self):
+        expected = pd.DataFrame({
+            'decimals': [
+                decimal.Decimal('394092382910493.12341234678'),
+                -decimal.Decimal('314292388910493.12343437128'),
+            ]
+        })
+        table = pa.Table.from_pandas(expected)
+        metadata = table.schema.metadata
+        assert b'mixed' not in metadata[b'pandas']
+
+        js = json.loads(metadata[b'pandas'].decode('utf8'))
+        data_column = js['columns'][0]
+        assert data_column['pandas_type'] == 'decimal'
+        assert data_column['numpy_type'] == 'object'
+        assert data_column['metadata'] == {'precision': 26, 'scale': 11}
+
+    def test_table_str_to_categorical(self):
+        values = [None, 'a', 'b', np.nan]
+        df = pd.DataFrame({'strings': values})
+        field = pa.field('strings', pa.string())
+        schema = pa.schema([field])
+        table = pa.Table.from_pandas(df, schema=schema)
+
+        result = table.to_pandas(strings_to_categorical=True)
+        expected = pd.DataFrame({'strings': pd.Categorical(values)})
+        tm.assert_frame_equal(result, expected, check_dtype=True)
+
+
+def _pytime_from_micros(val):
+    microseconds = val % 1000000
+    val //= 1000000
+    seconds = val % 60
+    val //= 60
+    minutes = val % 60
+    hours = val // 60
+    return time(hours, minutes, seconds, microseconds)
+
+
+def _pytime_to_micros(pytime):
+    return (pytime.hour * 3600000000 +
+            pytime.minute * 60000000 +
+            pytime.second * 1000000 +
+            pytime.microsecond)
