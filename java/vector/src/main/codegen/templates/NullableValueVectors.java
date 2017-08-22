@@ -481,7 +481,7 @@ protected final static byte[] emptyByteArray = new byte[]{};
     </#if>
   }
 
-  public final class Accessor extends BaseDataValueVector.BaseAccessor <#if type.major = "VarLen">implements VariableWidthVector.VariableWidthAccessor</#if> {
+  public final class Accessor extends BaseValueVector.BaseAccessor <#if type.major = "VarLen">implements VariableWidthVector.VariableWidthAccessor</#if> {
     final BitVector.Accessor bAccessor = bits.getAccessor();
     final ${valuesName}.Accessor vAccessor = values.getAccessor();
 
@@ -550,7 +550,7 @@ protected final static byte[] emptyByteArray = new byte[]{};
     public void reset(){}
   }
 
-  public final class Mutator extends BaseDataValueVector.BaseMutator implements NullableVectorDefinitionSetter<#if type.major = "VarLen">, VariableWidthVector.VariableWidthMutator</#if> {
+  public final class Mutator extends BaseValueVector.BaseMutator implements NullableVectorDefinitionSetter<#if type.major = "VarLen">, VariableWidthVector.VariableWidthMutator</#if> {
     private int setCount;
     <#if type.major = "VarLen"> private int lastSet = -1;</#if>
 
