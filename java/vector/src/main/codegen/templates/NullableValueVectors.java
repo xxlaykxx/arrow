@@ -282,6 +282,7 @@ protected final static byte[] emptyByteArray = new byte[]{};
     accessor.reset();
   }
 
+  @Override
   public void reset() {
     bits.zeroVector();
     mutator.reset();
@@ -313,6 +314,7 @@ protected final static byte[] emptyByteArray = new byte[]{};
     accessor.reset();
   }
 
+  @Override
   public void reset() {
     bits.zeroVector();
     mutator.reset();
