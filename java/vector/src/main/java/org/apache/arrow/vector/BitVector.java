@@ -274,20 +274,11 @@ public final class BitVector extends BaseDataValueVector implements FixedWidthVe
         // Copy data
         // When the first bit starts from the middle of a byte (offset != 0), copy data from src BitVector.
         // Each byte in the target is composed by a part in i-th byte, another part in (i+1)-th byte.
-        // The last byte copied to target is a bit tricky :
-        //   1) if length requires partly byte (length % 8 !=0), copy the remaining bits only.
-        //   2) otherwise, copy the last byte in the same way as to the prior bytes.
         target.clear();
-        target.allocateNew(length);
+        target.allocateNew(byteSize * 8);
         // TODO maybe do this one word at a time, rather than byte?
-        for (int i = 0; i < byteSize - 1; i++) {
+        for (int i = 0; i < byteSize; i++) {
           target.data.setByte(i, (((this.data.getByte(firstByte + i) & 0xFF) >>> offset) + (this.data.getByte(firstByte + i + 1) << (8 - offset))));
-        }
-        if (length % 8 != 0) {
-          target.data.setByte(byteSize - 1, ((this.data.getByte(firstByte + byteSize - 1) & 0xFF) >>> offset));
-        } else {
-          target.data.setByte(byteSize - 1,
-                  (((this.data.getByte(firstByte + byteSize - 1) & 0xFF) >>> offset) + (this.data.getByte(firstByte + byteSize) << (8 - offset))));
         }
       }
     }
