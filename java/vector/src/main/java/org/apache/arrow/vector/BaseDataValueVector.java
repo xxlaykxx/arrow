@@ -69,7 +69,9 @@ public abstract class BaseDataValueVector extends BaseValueVector implements Buf
 
   @Override
   public void clear() {
-    data.release();
+    if(data != null) {
+      data.release();
+    }
     data = allocator.getEmpty();
     super.clear();
   }
@@ -118,12 +120,5 @@ public abstract class BaseDataValueVector extends BaseValueVector implements Buf
   @Override
   public ArrowBuf unLoad() {
     return this.data.readerIndex(0);
-  }
-
-  /**
-   * This method has a similar effect of allocateNew() without actually clearing and reallocating
-   * the value vector. The purpose is to move the value vector to a "mutate" state
-   */
-  public void reset() {
   }
 }
