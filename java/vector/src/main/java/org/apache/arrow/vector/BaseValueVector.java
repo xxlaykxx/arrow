@@ -62,6 +62,8 @@ public abstract class BaseValueVector implements ValueVector {
     clear();
   }
 
+  public void reset() { }
+
   @Override
   public TransferPair getTransferPair(BufferAllocator allocator) {
     return getTransferPair(name, allocator);
