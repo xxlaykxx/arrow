@@ -80,4 +80,16 @@ public class TestListVector {
       Assert.assertTrue("shouldn't be null", reader.isSet());
     }
   }
+
+  @Test
+  public void testConsistentChildName() throws Exception {
+    try (ListVector listVector = ListVector.empty("sourceVector", allocator)) {
+      String emptyListStr = listVector.getField().toString();
+      assertTrue(emptyListStr.contains(ListVector.DATA_VECTOR_NAME));
+
+      listVector.addOrGetVector(FieldType.nullable(MinorType.INT.getType()));
+      String emptyVectorStr = listVector.getField().toString();
+      assertTrue(emptyVectorStr.contains(ListVector.DATA_VECTOR_NAME));
+    }
+  }
 }
