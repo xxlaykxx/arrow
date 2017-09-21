@@ -17,10 +17,14 @@
  */
 package org.apache.arrow.vector;
 
+import static org.junit.Assert.assertTrue;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.impl.UnionListWriter;
 import org.apache.arrow.vector.complex.reader.FieldReader;
+import org.apache.arrow.vector.types.Types.*;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -78,6 +82,18 @@ public class TestListVector {
       Assert.assertFalse("should be null", reader.isSet());
       reader.setPosition(2);
       Assert.assertTrue("shouldn't be null", reader.isSet());
+    }
+  }
+
+  @Test
+  public void testConsistentChildName() throws Exception {
+    try (ListVector listVector = ListVector.empty("sourceVector", allocator)) {
+      String emptyListStr = listVector.getField().toString();
+      assertTrue(emptyListStr.contains(ListVector.DATA_VECTOR_NAME));
+
+      listVector.addOrGetVector(FieldType.nullable(MinorType.INT.getType()));
+      String emptyVectorStr = listVector.getField().toString();
+      assertTrue(emptyVectorStr.contains(ListVector.DATA_VECTOR_NAME));
     }
   }
 }
