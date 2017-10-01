@@ -18,6 +18,7 @@
 package org.apache.arrow.memory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 
 /**
  * Highly specialized IdentityHashMap that implements only partial
@@ -25,36 +26,29 @@ import com.google.common.annotations.VisibleForTesting;
  * It incurs low initial cost (just two elements by default)
  * It assumes Value includes the Key - Implements @ValueWithKeyIncluded iface
  * that provides "getKey" method
+ * @param <K>
  * @param <V>
  */
-public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
+public class LowCostIdentityHasMap<K, V extends ValueWithKeyIncluded<K>> {
 
   /*
    * The internal data structure to hold values.
    */
-  transient Object[] elementData;
+  private Object[] elementData;
 
   /* Actual number of values. */
-  int size;
+  private int size;
 
   /*
    * maximum number of elements that can be put in this map before having to
    * rehash.
    */
-  transient int threshold;
+  private int threshold;
 
   private static final int DEFAULT_MIN_SIZE = 1;
 
   /* Default load factor of 0.75; */
   private static final int loadFactor = 7500;
-
-  /*
-   * Object used to represent null keys and values. This is used to
-   * differentiate a literal 'null' from an empty spot in the
-   * map.
-   */
-  private static final Object NULL_OBJECT = new Object();  //$NON-LOCK-1$
-
 
   /**
    * Creates an Map with default expected maximum size.
@@ -104,9 +98,8 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
     return new Object[s];
   }
 
-  @SuppressWarnings("unchecked")
   private V massageValue(Object value) {
-    return (V) ((value == NULL_OBJECT) ? null : value);
+    return (V) ((value == null) ? null : value);
   }
 
   /**
@@ -131,9 +124,7 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
    *         {@code false} otherwise.
    */
   public boolean containsKey(Object key) {
-    if (key == null) {
-      key = NULL_OBJECT;
-    }
+    Preconditions.checkNotNull(key);
 
     int index = findIndex(key, elementData);
     return (elementData[index] == null) ? false : ((V)elementData[index]).getKey() == key;
@@ -147,10 +138,8 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
    * @return {@code true} if this map contains the specified value,
    *         {@code false} otherwise.
    */
-  public boolean containsValue(Object value) {
-    if (value == null) {
-      value = NULL_OBJECT;
-    }
+  public boolean containsValue(V value) {
+    Preconditions.checkNotNull(value);
 
     for (int i = 0; i < elementData.length; i++) {
       if (elementData[i] == value) {
@@ -168,18 +157,12 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
    * @return the value of the mapping with the specified key.
    */
   public V get(Object key) {
-    if (key == null) {
-      key = NULL_OBJECT;
-    }
+    Preconditions.checkNotNull(key);
 
     int index = findIndex(key, elementData);
 
-    if (elementData[index] != null && ((V) elementData[index]).getKey() == key) {
-      Object result = elementData[index];
-      return massageValue(result);
-    }
-
-    return null;
+    return (elementData[index] == null) ? null :
+      (((V)elementData[index]).getKey() == key) ? (V)elementData[index] : null;
   }
 
   /**
@@ -193,10 +176,10 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
     int last = (index + length - 1) % length;
     while (index != last) {
       if ((array[index] == null) || ((V)array[index]).getKey() == key) {
-                /*
-                 * Found the key, or the next empty spot (which means key is not
-                 * in the table)
-                 */
+        /*
+         * Found the key, or the next empty spot (which means key is not
+         * in the table)
+         */
         break;
       }
       index = (index+1) % length;
@@ -218,15 +201,10 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
    *         {@code null} if there was no such mapping.
    */
   public V put(V value) {
-    Object _key = value.getKey();
-    Object _value = value;
-    if (_key == null) {
-      _key = NULL_OBJECT;
-    }
-
-    if (_value == null) {
-      _value = NULL_OBJECT;
-    }
+    Preconditions.checkNotNull(value);
+    K _key = value.getKey();
+    Preconditions.checkNotNull(_key);
+    V _value = value;
 
     int index = findIndex(_key, elementData);
 
@@ -280,9 +258,7 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
    *         for the specified key was found.
    */
   public V remove(Object key) {
-    if (key == null) {
-      key = NULL_OBJECT;
-    }
+    Preconditions.checkNotNull(key);
 
     boolean hashedOk;
     int index, next, hash;

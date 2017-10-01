@@ -74,7 +74,9 @@ public class AllocationManager {
   private final long allocatorManagerId = MANAGER_ID_GENERATOR.incrementAndGet();
   private final int size;
   private final UnsafeDirectLittleEndian underlying;
-  private final LowCostIdentityHasMap<BufferLedger> map = new LowCostIdentityHasMap<>();
+  // ARROW-1627 Trying to minimize memory overhead caused by previously used IdentityHashMap
+  // see JIRA for details
+  private final LowCostIdentityHasMap<BaseAllocator, BufferLedger> map = new LowCostIdentityHasMap<>();
   private final ReadWriteLock lock = new ReentrantReadWriteLock();
   private final AutoCloseableLock readLock = new AutoCloseableLock(lock.readLock());
   private final AutoCloseableLock writeLock = new AutoCloseableLock(lock.writeLock());
@@ -196,7 +198,7 @@ public class AllocationManager {
    * As with AllocationManager, the only reason this is public is due to ArrowBuf being in io
    * .netty.buffer package.
    */
-  public class BufferLedger implements ValueWithKeyIncluded {
+  public class BufferLedger implements ValueWithKeyIncluded<BaseAllocator> {
 
     private final IdentityHashMap<ArrowBuf, Object> buffers =
         BaseAllocator.DEBUG ? new IdentityHashMap<ArrowBuf, Object>() : null;
@@ -227,7 +229,7 @@ public class AllocationManager {
     }
 
     @Override
-    public Object getKey() {
+    public BaseAllocator getKey() {
       return allocator;
     }
 

@@ -31,7 +31,7 @@ public class TestLowCostIdentityHasMap {
 
   @Test
   public void testIdentityHashMap() throws Exception {
-    LowCostIdentityHasMap<StringWithKey> hashMap = new LowCostIdentityHasMap<>();
+    LowCostIdentityHasMap<String, StringWithKey> hashMap = new LowCostIdentityHasMap<>();
 
     StringWithKey obj1 = new StringWithKey("s1key", "s1value");
     StringWithKey obj2 = new StringWithKey("s2key", "s2value");
@@ -83,7 +83,7 @@ public class TestLowCostIdentityHasMap {
 
   @Test
   public void testLargeMap() throws Exception {
-    LowCostIdentityHasMap<StringWithKey> hashMap = new LowCostIdentityHasMap<>();
+    LowCostIdentityHasMap<String, StringWithKey> hashMap = new LowCostIdentityHasMap<>();
 
     String [] keys = new String[200];
     for (int i = 0; i < 200; i++) {
@@ -142,7 +142,7 @@ public class TestLowCostIdentityHasMap {
     assertTrue(hashMap.isEmpty());
   }
 
-  private class StringWithKey implements ValueWithKeyIncluded {
+  private class StringWithKey implements ValueWithKeyIncluded<String> {
 
     private String myValue;
     private String myKey;
@@ -153,7 +153,7 @@ public class TestLowCostIdentityHasMap {
     }
 
     @Override
-    public Object getKey() {
+    public String getKey() {
       return myKey;
     }
 
