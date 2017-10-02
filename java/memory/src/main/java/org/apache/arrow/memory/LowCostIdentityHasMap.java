@@ -188,7 +188,7 @@ public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
 
   @VisibleForTesting
   static int getModuloHash(Object key, int length) {
-    return ((System.identityHashCode(key) & 0x7FFFFFFF) % (length / 2) * 2);
+    return ((System.identityHashCode(key) & 0x7FFFFFFF) % length);
   }
 
   /**

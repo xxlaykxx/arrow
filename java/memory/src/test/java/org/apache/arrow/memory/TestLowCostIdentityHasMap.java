@@ -37,13 +37,15 @@ public class TestLowCostIdentityHasMap {
     StringWithKey obj2 = new StringWithKey("s2key", "s2value");
     StringWithKey obj3 = new StringWithKey("s3key", "s3value");
     StringWithKey obj4 = new StringWithKey("s1key", "s4value");
+    StringWithKey obj5 = new StringWithKey("s5key", "s5value");
 
     assertNull(hashMap.put(obj1));
     assertNull(hashMap.put(obj2));
     assertNull(hashMap.put(obj3));
     assertEquals(obj1, hashMap.put(obj4));
+    assertNull(hashMap.put(obj5));
 
-    assertEquals(3, hashMap.size());
+    assertEquals(4, hashMap.size());
 
     assertEquals(obj4,hashMap.get("s1key"));
 
@@ -51,7 +53,7 @@ public class TestLowCostIdentityHasMap {
 
     assertEquals(obj3,hashMap.remove("s3key"));
 
-    assertEquals(2, hashMap.size());
+    assertEquals(3, hashMap.size());
 
     assertTrue(!hashMap.isEmpty());
 
@@ -59,10 +61,12 @@ public class TestLowCostIdentityHasMap {
 
     assertNotNull(nextValue);
 
-    assertTrue((hashMap.get("s1key") == nextValue || hashMap.get("s2key") == nextValue));
+    assertTrue((hashMap.get("s1key") == nextValue || hashMap.get("s2key") == nextValue ||
+      hashMap.get("s5key") == nextValue));
 
     assertTrue(hashMap.containsValue(obj4));
     assertTrue(hashMap.containsValue(obj2));
+    assertTrue(hashMap.containsValue(obj5));
 
     assertEquals(obj4,hashMap.remove("s1key"));
 
@@ -70,11 +74,12 @@ public class TestLowCostIdentityHasMap {
 
     assertNotNull(nextValue);
 
-    assertTrue(hashMap.get("s2key") == nextValue);
+    assertTrue(hashMap.get("s2key") == nextValue || hashMap.get("s5key") == nextValue);
 
-    assertEquals(1, hashMap.size());
+    assertEquals(2, hashMap.size());
 
     assertEquals(obj2,hashMap.remove("s2key"));
+    assertEquals(obj5,hashMap.remove("s5key"));
 
     assertEquals(0, hashMap.size());
 
