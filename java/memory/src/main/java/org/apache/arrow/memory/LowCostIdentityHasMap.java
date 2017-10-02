@@ -26,10 +26,9 @@ import com.google.common.base.Preconditions;
  * It incurs low initial cost (just two elements by default)
  * It assumes Value includes the Key - Implements @ValueWithKeyIncluded iface
  * that provides "getKey" method
- * @param <K>
  * @param <V>
  */
-public class LowCostIdentityHasMap<K, V extends ValueWithKeyIncluded<K>> {
+public class LowCostIdentityHasMap<V extends ValueWithKeyIncluded> {
 
   /*
    * The internal data structure to hold values.
@@ -202,7 +201,7 @@ public class LowCostIdentityHasMap<K, V extends ValueWithKeyIncluded<K>> {
    */
   public V put(V value) {
     Preconditions.checkNotNull(value);
-    K _key = value.getKey();
+    Object _key = value.getKey();
     Preconditions.checkNotNull(_key);
     V _value = value;
 
