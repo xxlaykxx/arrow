@@ -97,8 +97,8 @@ public class BaseFileTest {
 
   protected void validateContent(int count, VectorSchemaRoot root) {
     for (int i = 0; i < count; i++) {
-      Assert.assertEquals(i, root.getVector("int").getAccessor().getObject(i));
-      Assert.assertEquals(Long.valueOf(i), root.getVector("bigInt").getAccessor().getObject(i));
+      Assert.assertEquals(i, root.getVector("int").getObject(i));
+      Assert.assertEquals(Long.valueOf(i), root.getVector("bigInt").getObject(i));
     }
   }
 
@@ -140,10 +140,9 @@ public class BaseFileTest {
   public void printVectors(List<FieldVector> vectors) {
     for (FieldVector vector : vectors) {
       LOGGER.debug(vector.getField().getName());
-      Accessor accessor = vector.getAccessor();
-      int valueCount = accessor.getValueCount();
+      int valueCount = vector.getValueCount();
       for (int i = 0; i < valueCount; i++) {
-        LOGGER.debug(String.valueOf(accessor.getObject(i)));
+        LOGGER.debug(String.valueOf(vector.getObject(i)));
       }
     }
   }
@@ -152,14 +151,15 @@ public class BaseFileTest {
     Assert.assertEquals(count, root.getRowCount());
     printVectors(root.getFieldVectors());
     for (int i = 0; i < count; i++) {
-      Object intVal = root.getVector("int").getAccessor().getObject(i);
+
+      Object intVal = root.getVector("int").getObject(i);
       if (i % 5 != 3) {
         Assert.assertEquals(i, intVal);
       } else {
         Assert.assertNull(intVal);
       }
-      Assert.assertEquals(Long.valueOf(i), root.getVector("bigInt").getAccessor().getObject(i));
-      Assert.assertEquals(i % 3, ((List<?>) root.getVector("list").getAccessor().getObject(i)).size());
+      Assert.assertEquals(Long.valueOf(i), root.getVector("bigInt").getObject(i));
+      Assert.assertEquals(i % 3, ((List<?>) root.getVector("list").getObject(i)).size());
       NullableTimeStampMilliHolder h = new NullableTimeStampMilliHolder();
       FieldReader mapReader = root.getVector("map").getReader();
       mapReader.setPosition(i);
@@ -202,15 +202,15 @@ public class BaseFileTest {
     Assert.assertEquals(count, root.getRowCount());
     printVectors(root.getFieldVectors());
     for (int i = 0; i < count; i++) {
-      long dateVal = ((NullableDateMilliVector) root.getVector("date")).getAccessor().get(i);
+      long dateVal = ((NullableDateMilliVector) root.getVector("date")).get(i);
       LocalDateTime dt = makeDateTimeFromCount(i);
       LocalDateTime dateExpected = dt.minusMillis(dt.getMillisOfDay());
       Assert.assertEquals(DateUtility.toMillis(dateExpected), dateVal);
-      long timeVal = ((NullableTimeMilliVector) root.getVector("time")).getAccessor().get(i);
+      long timeVal = ((NullableTimeMilliVector) root.getVector("time")).get(i);
       Assert.assertEquals(dt.getMillisOfDay(), timeVal);
-      Object timestampMilliVal = root.getVector("timestamp-milli").getAccessor().getObject(i);
+      Object timestampMilliVal = root.getVector("timestamp-milli").getObject(i);
       Assert.assertEquals(dt, timestampMilliVal);
-      Object timestampMilliTZVal = root.getVector("timestamp-milliTZ").getAccessor().getObject(i);
+      Object timestampMilliTZVal = root.getVector("timestamp-milliTZ").getObject(i);
       Assert.assertEquals(DateUtility.toMillis(dt), timestampMilliTZVal);
     }
   }
@@ -220,22 +220,20 @@ public class BaseFileTest {
     // Define dictionaries and add to provider
     NullableVarCharVector dictionary1Vector = newNullableVarCharVector("D1", bufferAllocator);
     dictionary1Vector.allocateNewSafe();
-    NullableVarCharVector.Mutator mutator = dictionary1Vector.getMutator();
-    mutator.set(0, "foo".getBytes(StandardCharsets.UTF_8));
-    mutator.set(1, "bar".getBytes(StandardCharsets.UTF_8));
-    mutator.set(2, "baz".getBytes(StandardCharsets.UTF_8));
-    mutator.setValueCount(3);
+    dictionary1Vector.set(0, "foo".getBytes(StandardCharsets.UTF_8));
+    dictionary1Vector.set(1, "bar".getBytes(StandardCharsets.UTF_8));
+    dictionary1Vector.set(2, "baz".getBytes(StandardCharsets.UTF_8));
+    dictionary1Vector.setValueCount(3);
 
     Dictionary dictionary1 = new Dictionary(dictionary1Vector, new DictionaryEncoding(1L, false, null));
     provider.put(dictionary1);
 
     NullableVarCharVector dictionary2Vector = newNullableVarCharVector("D2", bufferAllocator);
     dictionary2Vector.allocateNewSafe();
-    mutator = dictionary2Vector.getMutator();
-    mutator.set(0, "micro".getBytes(StandardCharsets.UTF_8));
-    mutator.set(1, "small".getBytes(StandardCharsets.UTF_8));
-    mutator.set(2, "large".getBytes(StandardCharsets.UTF_8));
-    mutator.setValueCount(3);
+    dictionary2Vector.set(0, "micro".getBytes(StandardCharsets.UTF_8));
+    dictionary2Vector.set(1, "small".getBytes(StandardCharsets.UTF_8));
+    dictionary2Vector.set(2, "large".getBytes(StandardCharsets.UTF_8));
+    dictionary2Vector.setValueCount(3);
 
     Dictionary dictionary2 = new Dictionary(dictionary2Vector, new DictionaryEncoding(2L, false, null));
     provider.put(dictionary2);
@@ -243,13 +241,12 @@ public class BaseFileTest {
     // Populate the vectors
     NullableVarCharVector vector1A = newNullableVarCharVector("varcharA", bufferAllocator);
     vector1A.allocateNewSafe();
-    mutator = vector1A.getMutator();
-    mutator.set(0, "foo".getBytes(StandardCharsets.UTF_8));
-    mutator.set(1, "bar".getBytes(StandardCharsets.UTF_8));
-    mutator.set(3, "baz".getBytes(StandardCharsets.UTF_8));
-    mutator.set(4, "bar".getBytes(StandardCharsets.UTF_8));
-    mutator.set(5, "baz".getBytes(StandardCharsets.UTF_8));
-    mutator.setValueCount(6);
+    vector1A.set(0, "foo".getBytes(StandardCharsets.UTF_8));
+    vector1A.set(1, "bar".getBytes(StandardCharsets.UTF_8));
+    vector1A.set(3, "baz".getBytes(StandardCharsets.UTF_8));
+    vector1A.set(4, "bar".getBytes(StandardCharsets.UTF_8));
+    vector1A.set(5, "baz".getBytes(StandardCharsets.UTF_8));
+    vector1A.setValueCount(6);
 
     FieldVector encodedVector1A = (FieldVector) DictionaryEncoder.encode(vector1A, dictionary1);
     vector1A.close();  // Done with this vector after encoding
@@ -257,22 +254,20 @@ public class BaseFileTest {
     // Write this vector using indices instead of encoding
     NullableIntVector encodedVector1B = new NullableIntVector("varcharB", bufferAllocator);
     encodedVector1B.allocateNewSafe();
-    NullableIntVector.Mutator mutator1B = encodedVector1B.getMutator();
-    mutator1B.set(0, 2);  // "baz"
-    mutator1B.set(1, 1);  // "bar"
-    mutator1B.set(2, 2);  // "baz"
-    mutator1B.set(4, 1);  // "bar"
-    mutator1B.set(5, 0);  // "foo"
-    mutator1B.setValueCount(6);
+    encodedVector1B.set(0, 2);  // "baz"
+    encodedVector1B.set(1, 1);  // "bar"
+    encodedVector1B.set(2, 2);  // "baz"
+    encodedVector1B.set(4, 1);  // "bar"
+    encodedVector1B.set(5, 0);  // "foo"
+    encodedVector1B.setValueCount(6);
 
     NullableVarCharVector vector2 = newNullableVarCharVector("sizes", bufferAllocator);
     vector2.allocateNewSafe();
-    mutator = vector2.getMutator();
-    mutator.set(1, "large".getBytes(StandardCharsets.UTF_8));
-    mutator.set(2, "small".getBytes(StandardCharsets.UTF_8));
-    mutator.set(3, "small".getBytes(StandardCharsets.UTF_8));
-    mutator.set(4, "large".getBytes(StandardCharsets.UTF_8));
-    mutator.setValueCount(6);
+    vector2.set(1, "large".getBytes(StandardCharsets.UTF_8));
+    vector2.set(2, "small".getBytes(StandardCharsets.UTF_8));
+    vector2.set(3, "small".getBytes(StandardCharsets.UTF_8));
+    vector2.set(4, "large".getBytes(StandardCharsets.UTF_8));
+    vector2.setValueCount(6);
 
     FieldVector encodedVector2 = (FieldVector) DictionaryEncoder.encode(vector2, dictionary2);
     vector2.close();  // Done with this vector after encoding
@@ -280,7 +275,7 @@ public class BaseFileTest {
     List<Field> fields = ImmutableList.of(encodedVector1A.getField(), encodedVector1B.getField(), encodedVector2.getField());
     List<FieldVector> vectors = ImmutableList.of(encodedVector1A, encodedVector1B, encodedVector2);
 
-    return new VectorSchemaRoot(fields, vectors, encodedVector1A.getAccessor().getValueCount());
+    return new VectorSchemaRoot(fields, vectors, encodedVector1A.getValueCount());
   }
 
   protected void validateFlatDictionary(VectorSchemaRoot root, DictionaryProvider provider) {
@@ -291,14 +286,13 @@ public class BaseFileTest {
     Assert.assertNotNull(encoding1A);
     Assert.assertEquals(1L, encoding1A.getId());
 
-    FieldVector.Accessor accessor = vector1A.getAccessor();
-    Assert.assertEquals(6, accessor.getValueCount());
-    Assert.assertEquals(0, accessor.getObject(0));
-    Assert.assertEquals(1, accessor.getObject(1));
-    Assert.assertEquals(null, accessor.getObject(2));
-    Assert.assertEquals(2, accessor.getObject(3));
-    Assert.assertEquals(1, accessor.getObject(4));
-    Assert.assertEquals(2, accessor.getObject(5));
+    Assert.assertEquals(6, vector1A.getValueCount());
+    Assert.assertEquals(0, vector1A.getObject(0));
+    Assert.assertEquals(1, vector1A.getObject(1));
+    Assert.assertEquals(null, vector1A.getObject(2));
+    Assert.assertEquals(2, vector1A.getObject(3));
+    Assert.assertEquals(1, vector1A.getObject(4));
+    Assert.assertEquals(2, vector1A.getObject(5));
 
     FieldVector vector1B = root.getVector("varcharB");
     Assert.assertNotNull(vector1B);
@@ -308,14 +302,13 @@ public class BaseFileTest {
     Assert.assertTrue(encoding1A.equals(encoding1B));
     Assert.assertEquals(1L, encoding1B.getId());
 
-    accessor = vector1B.getAccessor();
-    Assert.assertEquals(6, accessor.getValueCount());
-    Assert.assertEquals(2, accessor.getObject(0));
-    Assert.assertEquals(1, accessor.getObject(1));
-    Assert.assertEquals(2, accessor.getObject(2));
-    Assert.assertEquals(null, accessor.getObject(3));
-    Assert.assertEquals(1, accessor.getObject(4));
-    Assert.assertEquals(0, accessor.getObject(5));
+    Assert.assertEquals(6, vector1B.getValueCount());
+    Assert.assertEquals(2, vector1B.getObject(0));
+    Assert.assertEquals(1, vector1B.getObject(1));
+    Assert.assertEquals(2, vector1B.getObject(2));
+    Assert.assertEquals(null, vector1B.getObject(3));
+    Assert.assertEquals(1, vector1B.getObject(4));
+    Assert.assertEquals(0, vector1B.getObject(5));
 
     FieldVector vector2 = root.getVector("sizes");
     Assert.assertNotNull(vector2);
@@ -324,30 +317,29 @@ public class BaseFileTest {
     Assert.assertNotNull(encoding2);
     Assert.assertEquals(2L, encoding2.getId());
 
-    accessor = vector2.getAccessor();
-    Assert.assertEquals(6, accessor.getValueCount());
-    Assert.assertEquals(null, accessor.getObject(0));
-    Assert.assertEquals(2, accessor.getObject(1));
-    Assert.assertEquals(1, accessor.getObject(2));
-    Assert.assertEquals(1, accessor.getObject(3));
-    Assert.assertEquals(2, accessor.getObject(4));
-    Assert.assertEquals(null, accessor.getObject(5));
+    Assert.assertEquals(6, vector2.getValueCount());
+    Assert.assertEquals(null, vector2.getObject(0));
+    Assert.assertEquals(2, vector2.getObject(1));
+    Assert.assertEquals(1, vector2.getObject(2));
+    Assert.assertEquals(1, vector2.getObject(3));
+    Assert.assertEquals(2, vector2.getObject(4));
+    Assert.assertEquals(null, vector2.getObject(5));
 
     Dictionary dictionary1 = provider.lookup(1L);
     Assert.assertNotNull(dictionary1);
-    NullableVarCharVector.Accessor dictionaryAccessor = ((NullableVarCharVector) dictionary1.getVector()).getAccessor();
-    Assert.assertEquals(3, dictionaryAccessor.getValueCount());
-    Assert.assertEquals(new Text("foo"), dictionaryAccessor.getObject(0));
-    Assert.assertEquals(new Text("bar"), dictionaryAccessor.getObject(1));
-    Assert.assertEquals(new Text("baz"), dictionaryAccessor.getObject(2));
+    NullableVarCharVector dictionaryVector = ((NullableVarCharVector) dictionary1.getVector());
+    Assert.assertEquals(3, dictionaryVector.getValueCount());
+    Assert.assertEquals(new Text("foo"), dictionaryVector.getObject(0));
+    Assert.assertEquals(new Text("bar"), dictionaryVector.getObject(1));
+    Assert.assertEquals(new Text("baz"), dictionaryVector.getObject(2));
 
     Dictionary dictionary2 = provider.lookup(2L);
     Assert.assertNotNull(dictionary2);
-    dictionaryAccessor = ((NullableVarCharVector) dictionary2.getVector()).getAccessor();
-    Assert.assertEquals(3, dictionaryAccessor.getValueCount());
-    Assert.assertEquals(new Text("micro"), dictionaryAccessor.getObject(0));
-    Assert.assertEquals(new Text("small"), dictionaryAccessor.getObject(1));
-    Assert.assertEquals(new Text("large"), dictionaryAccessor.getObject(2));
+    dictionaryVector = ((NullableVarCharVector) dictionary2.getVector());
+    Assert.assertEquals(3, dictionaryVector.getValueCount());
+    Assert.assertEquals(new Text("micro"), dictionaryVector.getObject(0));
+    Assert.assertEquals(new Text("small"), dictionaryVector.getObject(1));
+    Assert.assertEquals(new Text("large"), dictionaryVector.getObject(2));
   }
 
   protected VectorSchemaRoot writeNestedDictionaryData(BufferAllocator bufferAllocator, DictionaryProvider.MapDictionaryProvider provider) {
@@ -355,9 +347,9 @@ public class BaseFileTest {
     // Define the dictionary and add to the provider
     NullableVarCharVector dictionaryVector = newNullableVarCharVector("D2", bufferAllocator);
     dictionaryVector.allocateNewSafe();
-    dictionaryVector.getMutator().set(0, "foo".getBytes(StandardCharsets.UTF_8));
-    dictionaryVector.getMutator().set(1, "bar".getBytes(StandardCharsets.UTF_8));
-    dictionaryVector.getMutator().setValueCount(2);
+    dictionaryVector.set(0, "foo".getBytes(StandardCharsets.UTF_8));
+    dictionaryVector.set(1, "bar".getBytes(StandardCharsets.UTF_8));
+    dictionaryVector.setValueCount(2);
 
     Dictionary dictionary = new Dictionary(dictionaryVector, new DictionaryEncoding(2L, false, null));
     provider.put(dictionary);
@@ -396,18 +388,17 @@ public class BaseFileTest {
     Assert.assertEquals(2L, encoding.getId());
     Assert.assertEquals(new ArrowType.Int(32, true), encoding.getIndexType());
 
-    FieldVector.Accessor accessor = vector.getAccessor();
-    Assert.assertEquals(3, accessor.getValueCount());
-    Assert.assertEquals(Arrays.asList(0, 1), accessor.getObject(0));
-    Assert.assertEquals(Arrays.asList(0), accessor.getObject(1));
-    Assert.assertEquals(Arrays.asList(1), accessor.getObject(2));
+    Assert.assertEquals(3, vector.getValueCount());
+    Assert.assertEquals(Arrays.asList(0, 1), vector.getObject(0));
+    Assert.assertEquals(Arrays.asList(0), vector.getObject(1));
+    Assert.assertEquals(Arrays.asList(1), vector.getObject(2));
 
     Dictionary dictionary = provider.lookup(2L);
     Assert.assertNotNull(dictionary);
-    NullableVarCharVector.Accessor dictionaryAccessor = ((NullableVarCharVector) dictionary.getVector()).getAccessor();
-    Assert.assertEquals(2, dictionaryAccessor.getValueCount());
-    Assert.assertEquals(new Text("foo"), dictionaryAccessor.getObject(0));
-    Assert.assertEquals(new Text("bar"), dictionaryAccessor.getObject(1));
+    NullableVarCharVector dictionaryVector = ((NullableVarCharVector) dictionary.getVector());
+    Assert.assertEquals(2, dictionaryVector.getValueCount());
+    Assert.assertEquals(new Text("foo"), dictionaryVector.getObject(0));
+    Assert.assertEquals(new Text("bar"), dictionaryVector.getObject(1));
   }
 
   protected VectorSchemaRoot writeDecimalData(BufferAllocator bufferAllocator) {
@@ -421,14 +412,14 @@ public class BaseFileTest {
     decimalVector3.allocateNew(count);
 
     for (int i = 0; i < count; i++) {
-      decimalVector1.getMutator().setSafe(i, new BigDecimal(BigInteger.valueOf(i), 3));
-      decimalVector2.getMutator().setSafe(i, new BigDecimal(BigInteger.valueOf(i * (1 << 10)), 2));
-      decimalVector3.getMutator().setSafe(i, new BigDecimal(BigInteger.valueOf(i * 1111111111111111L), 8));
+      decimalVector1.setSafe(i, new BigDecimal(BigInteger.valueOf(i), 3));
+      decimalVector2.setSafe(i, new BigDecimal(BigInteger.valueOf(i * (1 << 10)), 2));
+      decimalVector3.setSafe(i, new BigDecimal(BigInteger.valueOf(i * 1111111111111111L), 8));
     }
 
-    decimalVector1.getMutator().setValueCount(count);
-    decimalVector2.getMutator().setValueCount(count);
-    decimalVector3.getMutator().setValueCount(count);
+    decimalVector1.setValueCount(count);
+    decimalVector2.setValueCount(count);
+    decimalVector3.setValueCount(count);
 
     List<Field> fields = ImmutableList.of(decimalVector1.getField(), decimalVector2.getField(), decimalVector3.getField());
     List<FieldVector> vectors = ImmutableList.<FieldVector>of(decimalVector1, decimalVector2, decimalVector3);
@@ -444,19 +435,19 @@ public class BaseFileTest {
 
     for (int i = 0; i < count; i++) {
       // Verify decimal 1 vector
-      BigDecimal readValue = decimalVector1.getAccessor().getObject(i);
+      BigDecimal readValue = decimalVector1.getObject(i);
       ArrowType.Decimal type = (ArrowType.Decimal) decimalVector1.getField().getType();
       BigDecimal genValue = new BigDecimal(BigInteger.valueOf(i), type.getScale());
       Assert.assertEquals(genValue, readValue);
 
       // Verify decimal 2 vector
-      readValue = decimalVector2.getAccessor().getObject(i);
+      readValue = decimalVector2.getObject(i);
       type = (ArrowType.Decimal) decimalVector2.getField().getType();
       genValue = new BigDecimal(BigInteger.valueOf(i * (1 << 10)), type.getScale());
       Assert.assertEquals(genValue, readValue);
 
       // Verify decimal 3 vector
-      readValue = decimalVector3.getAccessor().getObject(i);
+      readValue = decimalVector3.getObject(i);
       type = (ArrowType.Decimal) decimalVector3.getField().getType();
       genValue = new BigDecimal(BigInteger.valueOf(i * 1111111111111111L), type.getScale());
       Assert.assertEquals(genValue, readValue);
@@ -569,7 +560,7 @@ public class BaseFileTest {
     int numVarBinaryValues = 0;
     for (int i = 0; i < count; i++) {
       expectedArray[i] = (byte) i;
-      Object obj = listVector.getAccessor().getObject(i);
+      Object obj = listVector.getObject(i);
       List<?> objList = (List) obj;
       if (i % 3 == 0) {
         Assert.assertTrue(objList.isEmpty());
@@ -584,10 +575,10 @@ public class BaseFileTest {
     }
 
     // ListVector lastSet should be the index of last value + 1
-    Assert.assertEquals(listVector.getMutator().getLastSet(), count);
+    Assert.assertEquals(listVector.getLastSet(), count);
 
     // NullableVarBinaryVector lastSet should be the index of last value
     NullableVarBinaryVector binaryVector = (NullableVarBinaryVector) listVector.getChildrenFromFields().get(0);
-    Assert.assertEquals(binaryVector.getMutator().getLastSet(), numVarBinaryValues - 1);
+    Assert.assertEquals(binaryVector.getLastSet(), numVarBinaryValues - 1);
   }
 }
