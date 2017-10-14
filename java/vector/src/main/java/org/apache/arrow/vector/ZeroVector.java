@@ -259,4 +259,19 @@ public class ZeroVector implements FieldVector {
   public ArrowBuf getOffsetBuffer() {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public int getValueCount() { return 0; }
+
+  @Override
+  public void setValueCount(int valueCount) { }
+
+  @Override
+  public Object getObject(int index) { return null; }
+
+  @Override
+  public int getNullCount() { return 0; }
+
+  @Override
+  public boolean isNull(int index) { return false; }
 }
