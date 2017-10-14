@@ -19,8 +19,8 @@
 <#list vv.types as type>
 <#list type.minor as minor>
 
-<#assign className = "Nullable${minor.class}Vector" />
-<#assign valuesName = "${minor.class}Vector" />
+<#assign className = "LegacyNullable${minor.class}Vector" />
+<#assign valuesName = "Nullable${minor.class}Vector" />
 <#assign friendlyType = (minor.friendlyType!minor.boxedType!type.boxedType) />
 
 <@pp.changeOutputFile name="/org/apache/arrow/vector/${className}.java" />
@@ -44,23 +44,20 @@ import org.apache.arrow.flatbuf.Precision;
  * NB: this class is automatically generated from ${.template_name} and ValueVectorTypes.tdd using FreeMarker.
  */
 @SuppressWarnings("unused")
-public final class ${className} extends BaseValueVector implements <#if type.major == "VarLen">VariableWidth<#else>FixedWidth</#if>Vector, NullableVector, FieldVector {
+@Deprecated
+public final class ${className} extends BaseValueVector implements <#if type.major == "VarLen">VariableWidth<#else>FixedWidth</#if>Vector, FieldVector {
   private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(${className}.class);
 
 protected final static byte[] emptyByteArray = new byte[]{};
-  private final FieldReader reader = new ${minor.class}ReaderImpl(${className}.this);
 
   private final String bitsField = "$bits$";
   private final String valuesField = "$values$";
-  private final Field field;
 
   final BitVector bits = new BitVector(bitsField, allocator);
   final ${valuesName} values;
 
   private final Mutator mutator;
   private final Accessor accessor;
-
-  private final List<BufferBacked> innerVectors;
 
   <#if minor.typeParams??>
     <#assign typeParams = minor.typeParams?reverse>
@@ -105,24 +102,12 @@ protected final static byte[] emptyByteArray = new byte[]{};
     </#if>
     this.mutator = new Mutator();
     this.accessor = new Accessor();
-    this.field = new Field(name, fieldType, null);
-    innerVectors = Collections.unmodifiableList(Arrays.<BufferBacked>asList(
-        bits,
-        <#if type.major = "VarLen">
-        values.offsetVector,
-        </#if>
-        values
-    ));
-  }
-
-  @Override
-  public BitVector getValidityVector() {
-    return bits;
   }
 
   @Override
   public List<BufferBacked> getFieldInnerVectors() {
-    return innerVectors;
+    /* DELEGATE TO NEW VECTOR */
+    return values.getFieldInnerVectors();
   }
 
   @Override
@@ -139,73 +124,61 @@ protected final static byte[] emptyByteArray = new byte[]{};
 
   @Override
   public void loadFieldBuffers(ArrowFieldNode fieldNode, List<ArrowBuf> ownBuffers) {
-    <#if type.major = "VarLen">
-    // variable width values: truncate offset vector buffer to size (#1)
-    org.apache.arrow.vector.BaseDataValueVector.truncateBufferBasedOnSize(ownBuffers, 1,
-        values.offsetVector.getBufferSizeFor(
-        fieldNode.getLength() == 0? 0 : fieldNode.getLength() + 1));
-    mutator.lastSet = fieldNode.getLength() - 1;
-    <#else>
-    // fixed width values truncate value vector to size (#1)
-    org.apache.arrow.vector.BaseDataValueVector.truncateBufferBasedOnSize(ownBuffers, 1, values.getBufferSizeFor(fieldNode.getLength()));
-    </#if>
-    org.apache.arrow.vector.BaseDataValueVector.load(fieldNode, getFieldInnerVectors(), ownBuffers);
-    bits.valueCount = fieldNode.getLength();
+    /* DELEGATE TO NEW VECTOR */
+    values.loadFieldBuffers(fieldNode, ownBuffers);
   }
 
   public List<ArrowBuf> getFieldBuffers() {
-    return org.apache.arrow.vector.BaseDataValueVector.unload(getFieldInnerVectors());
+    /* DELEGATE TO NEW VECTOR */
+    return values.getFieldBuffers();
   }
 
   @Override
   public Field getField() {
-    return field;
+    /* DELEGATE TO NEW VECTOR */
+    return values.getField();
   }
 
   @Override
   public MinorType getMinorType() {
-    return MinorType.${minor.class?upper_case};
+    /* DELEGATE TO NEW VECTOR */
+    return values.getMinorType();
   }
 
   @Override
   public FieldReader getReader(){
-    return reader;
+    /* DELEGATE TO NEW VECTOR */
+    return values.getReader();
   }
 
   @Override
   public int getValueCapacity(){
-    return Math.min(bits.getValueCapacity(), values.getValueCapacity());
+    /* DELEGATE TO NEW VECTOR */
+    return values.getValueCapacity();
   }
 
   @Override
   public ArrowBuf[] getBuffers(boolean clear) {
-    final ArrowBuf[] buffers = ObjectArrays.concat(bits.getBuffers(false), values.getBuffers(false), ArrowBuf.class);
-    if (clear) {
-      for (final ArrowBuf buffer:buffers) {
-        buffer.retain(1);
-      }
-      clear();
-    }
-    return buffers;
+    /* DELEGATE TO NEW VECTOR */
+    return values.getBuffers(clear);
   }
 
   @Override
   public void close() {
-    bits.close();
+    /* DELEGATE TO NEW VECTOR */
     values.close();
-    super.close();
   }
 
   @Override
   public void clear() {
-    bits.clear();
+    /* DELEGATE TO NEW VECTOR */
     values.clear();
-    super.clear();
   }
 
   @Override
   public int getBufferSize(){
-    return values.getBufferSize() + bits.getBufferSize();
+    /* DELEGATE TO NEW VECTOR */
+    return values.getBufferSize();
   }
 
   @Override
@@ -213,79 +186,52 @@ protected final static byte[] emptyByteArray = new byte[]{};
     if (valueCount == 0) {
       return 0;
     }
-
-    return values.getBufferSizeFor(valueCount)
-        + bits.getBufferSizeFor(valueCount);
+    /* DELEGATE TO NEW VECTOR */
+    return values.getBufferSizeFor(valueCount);
   }
 
   public ArrowBuf getBuffer() {
     return values.getDataBuffer();
   }
 
-  @Override
   public ${valuesName} getValuesVector() {
     return values;
   }
 
   @Override
   public void setInitialCapacity(int numRecords) {
-    bits.setInitialCapacity(numRecords);
+    /* DELEGATE TO NEW VECTOR */
     values.setInitialCapacity(numRecords);
   }
 
   @Override
   public void allocateNew() {
-    if(!allocateNewSafe()){
-      throw new OutOfMemoryException("Failure while allocating buffer.");
-    }
+    /* DELEGATE TO NEW VECTOR */
+    values.allocateNew();
   }
 
   @Override
   public boolean allocateNewSafe() {
-    /* Boolean to keep track if all the memory allocations were successful
-     * Used in the case of composite vectors when we need to allocate multiple
-     * buffers for multiple vectors. If one of the allocations failed we need to
-     * clear all the memory that we allocated
-     */
-    boolean success = false;
-    try {
-      success = values.allocateNewSafe() && bits.allocateNewSafe();
-    } finally {
-      if (!success) {
-        clear();
-      }
-    }
-    bits.zeroVector();
-    mutator.reset();
-    accessor.reset();
-    return success;
+    /* DELEGATE TO NEW VECTOR */
+    return values.allocateNewSafe();
   }
 
   @Override
   public void reAlloc() {
-    bits.reAlloc();
+    /* DELEGATE TO NEW VECTOR */
     values.reAlloc();
   }
 
   public void reset() {
-    bits.zeroVector();
-    mutator.reset();
-    accessor.reset();
+    /* DELEGATE TO NEW VECTOR */
+    values.reset();
   }
 
   <#if type.major == "VarLen">
   @Override
   public void allocateNew(int totalBytes, int valueCount) {
-    try {
-      values.allocateNew(totalBytes, valueCount);
-      bits.allocateNew(valueCount);
-    } catch(RuntimeException e) {
-      clear();
-      throw e;
-    }
-    bits.zeroVector();
-    mutator.reset();
-    accessor.reset();
+    /* DELEGATE TO NEW VECTOR */
+    values.allocateNew(totalBytes, valueCount);
   }
 
   @Override
@@ -301,16 +247,8 @@ protected final static byte[] emptyByteArray = new byte[]{};
   <#else>
   @Override
   public void allocateNew(int valueCount) {
-    try {
-      values.allocateNew(valueCount);
-      bits.allocateNew(valueCount);
-    } catch(OutOfMemoryException e) {
-      clear();
-      throw e;
-    }
-    bits.zeroVector();
-    mutator.reset();
-    accessor.reset();
+    /* DELEGATE TO NEW VECTOR */
+    values.allocateNew(valueCount);
   }
 
   /**
@@ -318,80 +256,64 @@ protected final static byte[] emptyByteArray = new byte[]{};
    */
   @Override
   public void zeroVector() {
-    bits.zeroVector();
+    /* DELEGATE TO NEW VECTOR */
     values.zeroVector();
   }
   </#if>
 
+
+
   @Override
   public TransferPair getTransferPair(String ref, BufferAllocator allocator, CallBack callBack) {
-        return getTransferPair(ref, allocator);
+    /* DELEGATE TO NEW VECTOR */
+    return values.getTransferPair(ref, allocator, callBack);
   }
+
+
 
   @Override
   public TransferPair getTransferPair(BufferAllocator allocator){
-    return new TransferImpl(name, allocator);
-
+    /* DELEGATE TO NEW VECTOR */
+    return values.getTransferPair(allocator);
   }
+
+
 
   @Override
   public TransferPair getTransferPair(String ref, BufferAllocator allocator){
-    return new TransferImpl(ref, allocator);
+    /* DELEGATE TO NEW VECTOR */
+    return values.getTransferPair(ref, allocator);
   }
+
+
 
   @Override
   public TransferPair makeTransferPair(ValueVector to) {
-    return new TransferImpl((${className}) to);
+    /* DELEGATE TO NEW VECTOR */
+    return values.makeTransferPair(to);
   }
 
-  public void transferTo(${className} target){
-    bits.transferTo(target.bits);
-    values.transferTo(target.values);
-    <#if type.major == "VarLen">
-    target.mutator.lastSet = mutator.lastSet;
-    </#if>
-    clear();
-  }
 
-  public void splitAndTransferTo(int startIndex, int length, ${className} target) {
-    bits.splitAndTransferTo(startIndex, length, target.bits);
-    values.splitAndTransferTo(startIndex, length, target.values);
+
+  public void transferTo(${valuesName} target) {
+    /* DELEGATE TO NEW VECTOR */
     <#if type.major == "VarLen">
-    target.mutator.lastSet = length - 1;
+        values.transferTo((BaseNullableVariableWidthVector) target);
+    <#else>
+        values.transferTo((BaseNullableFixedWidthVector) target);
     </#if>
   }
 
-  private class TransferImpl implements TransferPair {
-    ${className} to;
-
-    public TransferImpl(String ref, BufferAllocator allocator){
-      to = new ${className}(ref, field.getFieldType(), allocator);
-    }
-
-    public TransferImpl(${className} to){
-      this.to = to;
-    }
-
-    @Override
-    public ${className} getTo(){
-      return to;
-    }
-
-    @Override
-    public void transfer(){
-      transferTo(to);
-    }
-
-    @Override
-    public void splitAndTransfer(int startIndex, int length) {
-      splitAndTransferTo(startIndex, length, to);
-    }
-
-    @Override
-    public void copyValueSafe(int fromIndex, int toIndex) {
-      to.copyFromSafe(fromIndex, toIndex, ${className}.this);
-    }
+  public void splitAndTransferTo(int startIndex, int length, ${valuesName} target) {
+    /* DELEGATE TO NEW VECTOR */
+    <#if type.major == "VarLen">
+        values.splitAndTransferTo(startIndex, length, (BaseNullableVariableWidthVector) target);
+    <#else>
+        values.splitAndTransferTo(startIndex, length, (BaseNullableFixedWidthVector) target);
+    </#if>
   }
+
+
 
   @Override
   public Accessor getAccessor(){
@@ -403,81 +325,53 @@ protected final static byte[] emptyByteArray = new byte[]{};
     return mutator;
   }
 
-  public void copyFrom(int fromIndex, int thisIndex, ${className} from){
-    final Accessor fromAccessor = from.getAccessor();
-    if (!fromAccessor.isNull(fromIndex)) {
-      mutator.set(thisIndex, fromAccessor.get(fromIndex));
-    }
-    <#if type.major == "VarLen">mutator.lastSet = thisIndex;</#if>
+
+  public void copyFrom(int fromIndex, int thisIndex, ${valuesName} from) {
+    /* DELEGATE TO NEW VECTOR */
+    values.copyFrom(fromIndex, thisIndex, from);
   }
 
-  public void copyFromSafe(int fromIndex, int thisIndex, ${valuesName} from){
-    <#if type.major == "VarLen">
-    mutator.fillEmpties(thisIndex);
-    </#if>
+  public void copyFromSafe(int fromIndex, int thisIndex, ${valuesName} from) {
+    /* DELEGATE TO NEW VECTOR */
     values.copyFromSafe(fromIndex, thisIndex, from);
-    bits.getMutator().setSafeToOne(thisIndex);
-    <#if type.major == "VarLen">mutator.lastSet = thisIndex;</#if>
-  }
-
-  public void copyFromSafe(int fromIndex, int thisIndex, ${className} from){
-    <#if type.major == "VarLen">
-    mutator.fillEmpties(thisIndex);
-    </#if>
-    bits.copyFromSafe(fromIndex, thisIndex, from.bits);
-    values.copyFromSafe(fromIndex, thisIndex, from.values);
-    <#if type.major == "VarLen">mutator.lastSet = thisIndex;</#if>
   }
 
   @Override
   public long getValidityBufferAddress() {
-    /* address of the databuffer associated with the bitVector */
-    return (bits.getDataBuffer().memoryAddress());
+    /* DELEGATE TO NEW VECTOR */
+    return values.getValidityBufferAddress();
   }
 
   @Override
   public long getDataBufferAddress() {
-    /* address of the dataBuffer associated with the valueVector */
-    return (values.getDataBuffer().memoryAddress());
+    /* DELEGATE TO NEW VECTOR */
+    return values.getDataBufferAddress();
   }
 
   @Override
   public long getOffsetBufferAddress() {
-    /* address of the dataBuffer associated with the offsetVector
-     * this operation is not supported for fixed-width vector types.
-     */
-    <#if type.major != "VarLen">
-        throw new UnsupportedOperationException();
-    <#else>
-        return (values.getOffsetAddr());
-    </#if>
+    /* DELEGATE TO NEW VECTOR */
+    return values.getOffsetBufferAddress();
   }
 
   @Override
   public ArrowBuf getValidityBuffer() {
-    /* dataBuffer associated with the bitVector */
-    return (bits.getDataBuffer());
+    /* DELEGATE TO NEW VECTOR */
+    return values.getValidityBuffer();
   }
 
   @Override
   public ArrowBuf getDataBuffer() {
-    /* dataBuffer associated with the valueVector */
     return (values.getDataBuffer());
   }
 
   @Override
   public ArrowBuf getOffsetBuffer() {
-    /* dataBuffer associated with the offsetVector of the valueVector */
-    <#if type.major != "VarLen">
-        throw new UnsupportedOperationException();
-    <#else>
-        return (values.getOffsetBuffer());
-    </#if>
+    /* DELEGATE TO NEW VECTOR */
+    return values.getOffsetBuffer();
   }
 
   public final class Accessor extends BaseDataValueVector.BaseAccessor <#if type.major = "VarLen">implements VariableWidthVector.VariableWidthAccessor</#if> {
-    final BitVector.Accessor bAccessor = bits.getAccessor();
-    final ${valuesName}.Accessor vAccessor = values.getAccessor();
 
     /**
      * Get the element at the specified position.
@@ -486,79 +380,79 @@ protected final static byte[] emptyByteArray = new byte[]{};
      * @return value of the element, if not null
      */
     public <#if type.major == "VarLen">byte[]<#else>${minor.javaType!type.javaType}</#if> get(int index) {
-      if (isNull(index)) {
-          throw new IllegalStateException("Can't get a null value");
-      }
-      return vAccessor.get(index);
+      /* DELEGATE TO NEW VECTOR */
+      return values.get(index);
     }
 
     @Override
     public boolean isNull(int index) {
-      return isSet(index) == 0;
+      /* DELEGATE TO NEW VECTOR */
+      return values.isNull(index);
     }
 
     public int isSet(int index){
-      return bAccessor.get(index);
+      /* DELEGATE TO NEW VECTOR */
+      return values.isSet(index);
     }
 
     <#if type.major == "VarLen">
     public long getStartEnd(int index){
-      return vAccessor.getStartEnd(index);
+        /* DELEGATE TO NEW VECTOR */
+        return values.getStartEnd(index);
     }
 
     @Override
     public int getValueLength(int index) {
-      return values.getAccessor().getValueLength(index);
+        /* DELEGATE TO NEW VECTOR */
+        return values.getValueLength(index);
     }
     </#if>
 
     public void get(int index, Nullable${minor.class}Holder holder){
-      vAccessor.get(index, holder);
-      holder.isSet = bAccessor.get(index);
+        /* DELEGATE TO NEW VECTOR */
+        values.get(index, holder);
     }
 
     @Override
     public ${friendlyType} getObject(int index) {
-      if (isNull(index)) {
-          return null;
-      }else{
-        return vAccessor.getObject(index);
-      }
+      /* DELEGATE TO NEW VECTOR */
+      return values.getObject(index);
     }
 
     <#if minor.class == "IntervalYear" || minor.class == "IntervalDay">
     public StringBuilder getAsStringBuilder(int index) {
-      if (isNull(index)) {
-          return null;
-      }else{
-        return vAccessor.getAsStringBuilder(index);
-      }
+       /* DELEGATE TO NEW VECTOR */
+       return values.getAsStringBuilder(index);
     }
     </#if>
 
     @Override
     public int getValueCount(){
-      return bits.getAccessor().getValueCount();
+      /* DELEGATE TO NEW VECTOR */
+      return values.getValueCount();
     }
 
-    public void reset(){}
+    public void reset() { }
   }
 
   public final class Mutator extends BaseDataValueVector.BaseMutator implements NullableVectorDefinitionSetter<#if type.major = "VarLen">, VariableWidthVector.VariableWidthMutator</#if> {
     private int setCount;
     <#if type.major = "VarLen"> private int lastSet = -1;</#if>
 
-    private Mutator(){
-    }
+    private Mutator() { }
 
-    public ${valuesName} getVectorWithValues(){
+    public ${valuesName} getVectorWithValues() {
       return values;
     }
 
+
     @Override
-    public void setIndexDefined(int index){
-      bits.getMutator().setToOne(index);
+    public void setIndexDefined(int index) {
+      /* DELEGATE TO NEW VECTOR */
+      values.setIndexDefined(index);
     }
+
+
 
     /**
      * Set the variable length element at the specified index to the supplied byte array.
@@ -567,209 +461,134 @@ protected final static byte[] emptyByteArray = new byte[]{};
      * @param value   array of bytes (or int if smaller than 4 bytes) to write
      */
     public void set(int index, <#if type.major == "VarLen">byte[]<#elseif (type.width < 4)>int<#else>${minor.javaType!type.javaType}</#if> value) {
-      setCount++;
-      final ${valuesName}.Mutator valuesMutator = values.getMutator();
-      final BitVector.Mutator bitsMutator = bits.getMutator();
-      <#if type.major == "VarLen">
-      for (int i = lastSet + 1; i < index; i++) {
-        valuesMutator.set(i, emptyByteArray);
-      }
-      </#if>
-      bitsMutator.setToOne(index);
-      valuesMutator.set(index, value);
-      <#if type.major == "VarLen">lastSet = index;</#if>
+       /* DELEGATE TO NEW VECTOR */
+       values.set(index, value);
     }
 
-    <#if type.major == "VarLen">
 
-    public void fillEmpties(int index){
-      final ${valuesName}.Mutator valuesMutator = values.getMutator();
-      for (int i = lastSet + 1; i < index; i++) {
-        valuesMutator.setSafe(i, emptyByteArray);
-      }
-      while(index > bits.getValueCapacity()) {
-        bits.reAlloc();
-      }
-      lastSet = index - 1;
+
+    <#if type.major == "VarLen">
+    public void fillEmpties(int index) {
+      /* DELEGATE TO NEW VECTOR */
+      values.fillEmpties(index);
     }
 
     @Override
     public void setValueLengthSafe(int index, int length) {
-      values.getMutator().setValueLengthSafe(index, length);
-      lastSet = index;
+      /* DELEGATE TO NEW VECTOR */
+      values.setValueLengthSafe(index, length);
     }
     </#if>
 
-    public void setSafe(int index, byte[] value, int start, int length) {
-      <#if type.major != "VarLen">
-      throw new UnsupportedOperationException();
-      <#else>
-      fillEmpties(index);
 
-      bits.getMutator().setSafeToOne(index);
-      values.getMutator().setSafe(index, value, start, length);
-      setCount++;
-      <#if type.major == "VarLen">lastSet = index;</#if>
-      </#if>
+    public void setSafe(int index, byte[] value, int start, int length) {
+       /* DELEGATE TO NEW VECTOR */
+      values.setSafe(index, value, start, length);
     }
+
 
     public void setSafe(int index, ByteBuffer value, int start, int length) {
-      <#if type.major != "VarLen">
-      throw new UnsupportedOperationException();
-      <#else>
-      fillEmpties(index);
-
-      bits.getMutator().setSafeToOne(index);
-      values.getMutator().setSafe(index, value, start, length);
-      setCount++;
-      <#if type.major == "VarLen">lastSet = index;</#if>
-      </#if>
+       /* DELEGATE TO NEW VECTOR */
+       values.setSafe(index, value, start, length);
     }
 
-    public void setNull(int index){
-      bits.getMutator().setSafe(index, 0);
+
+    public void setNull(int index) {
+       /* DELEGATE TO NEW VECTOR */
+       values.setNull(index);
     }
 
-    public void setSkipNull(int index, ${minor.class}Holder holder){
-      values.getMutator().set(index, holder);
+
+    public void set(int index, Nullable${minor.class}Holder holder) {
+      /* DELEGATE TO NEW VECTOR */
+      values.set(index, holder);
     }
 
-    public void setSkipNull(int index, Nullable${minor.class}Holder holder){
-      values.getMutator().set(index, holder);
+
+    public void set(int index, ${minor.class}Holder holder) {
+        /* DELEGATE TO NEW VECTOR */
+        values.set(index, holder);
     }
 
-    public void set(int index, Nullable${minor.class}Holder holder){
-      final ${valuesName}.Mutator valuesMutator = values.getMutator();
-      <#if type.major == "VarLen">
-      for (int i = lastSet + 1; i < index; i++) {
-        valuesMutator.set(i, emptyByteArray);
-      }
-      </#if>
-      bits.getMutator().set(index, holder.isSet);
-      valuesMutator.set(index, holder);
-      <#if type.major == "VarLen">lastSet = index;</#if>
-    }
-
-    public void set(int index, ${minor.class}Holder holder){
-      final ${valuesName}.Mutator valuesMutator = values.getMutator();
-      <#if type.major == "VarLen">
-      for (int i = lastSet + 1; i < index; i++) {
-        valuesMutator.set(i, emptyByteArray);
-      }
-      </#if>
-      bits.getMutator().setToOne(index);
-      valuesMutator.set(index, holder);
-      <#if type.major == "VarLen">lastSet = index;</#if>
-    }
 
     public boolean isSafe(int outIndex) {
-      return outIndex < ${className}.this.getValueCapacity();
+       /* DELEGATE TO NEW VECTOR */
+       return values.isSafe(outIndex);
     }
+
 
     <#assign fields = minor.fields!type.fields />
     public void set(int index, int isSet<#list fields as field>, ${field.type} ${field.name}Field</#list> ){
-      final ${valuesName}.Mutator valuesMutator = values.getMutator();
-      <#if type.major == "VarLen">
-      for (int i = lastSet + 1; i < index; i++) {
-        valuesMutator.set(i, emptyByteArray);
-      }
-      </#if>
-      bits.getMutator().set(index, isSet);
-      valuesMutator.set(index<#list fields as field><#if field.include!true >, ${field.name}Field</#if></#list>);
-      <#if type.major == "VarLen">lastSet = index;</#if>
+      values.set(index, isSet<#list fields as field><#if field.include!true >, ${field.name}Field</#if></#list>);
     }
 
     public void setSafe(int index, int isSet<#list fields as field><#if field.include!true >, ${field.type} ${field.name}Field</#if></#list> ) {
-      <#if type.major == "VarLen">
-      fillEmpties(index);
-      </#if>
-      bits.getMutator().setSafe(index, isSet);
-      values.getMutator().setSafe(index<#list fields as field><#if field.include!true >, ${field.name}Field</#if></#list>);
-      setCount++;
-      <#if type.major == "VarLen">lastSet = index;</#if>
+      values.setSafe(index, isSet<#list fields as field><#if field.include!true >, ${field.name}Field</#if></#list>);
     }
 
 
     public void setSafe(int index, Nullable${minor.class}Holder value) {
-      <#if type.major == "VarLen">
-      fillEmpties(index);
-      </#if>
-      bits.getMutator().setSafe(index, value.isSet);
-      values.getMutator().setSafe(index, value);
-      setCount++;
-      <#if type.major == "VarLen">lastSet = index;</#if>
+      /* DELEGATE TO NEW VECTOR */
+      values.setSafe(index, value);
     }
 
     public void setSafe(int index, ${minor.class}Holder value) {
-      <#if type.major == "VarLen">
-      fillEmpties(index);
-      </#if>
-      bits.getMutator().setSafeToOne(index);
-      values.getMutator().setSafe(index, value);
-      setCount++;
-      <#if type.major == "VarLen">lastSet = index;</#if>
+      /* DELEGATE TO NEW VECTOR */
+      values.setSafe(index, value);
     }
+
 
     <#if !(type.major == "VarLen" || minor.class == "IntervalDay")>
     public void setSafe(int index, ${minor.javaType!type.javaType} value) {
-      bits.getMutator().setSafeToOne(index);
-      values.getMutator().setSafe(index, value);
-      setCount++;
+      /* DELEGATE TO NEW VECTOR */
+      values.setSafe(index, value);
     }
-
     </#if>
+
+
+
     <#if minor.class == "Decimal">
     public void set(int index, ${friendlyType} value) {
-      bits.getMutator().setToOne(index);
-      values.getMutator().set(index, value);
+      /* DELEGATE TO NEW VECTOR */
+      values.set(index, value);
     }
 
     public void setSafe(int index, ${friendlyType} value) {
-      bits.getMutator().setSafeToOne(index);
-      values.getMutator().setSafe(index, value);
-      setCount++;
+      /* DELEGATE TO NEW VECTOR */
+      values.setSafe(index, value);
     }
-
     </#if>
+
+
     @Override
     public void setValueCount(int valueCount) {
-      assert valueCount >= 0;
-      <#if type.major == "VarLen">
-      fillEmpties(valueCount);
-      </#if>
-      values.getMutator().setValueCount(valueCount);
-      bits.getMutator().setValueCount(valueCount);
+      /* DELEGATE TO NEW VECTOR */
+      values.setValueCount(valueCount);
     }
 
+
+    /* THIS METHOD IS PROBABLY NOT NEEDED FOR NEW VECTORS */
     @Override
-    public void generateTestData(int valueCount){
-      bits.getMutator().generateTestDataAlt(valueCount);
-      values.getMutator().generateTestData(valueCount);
-      <#if type.major = "VarLen">lastSet = valueCount;</#if>
-      setValueCount(valueCount);
-    }
+    public void generateTestData(int valueCount) { }
 
+
+    /* MUTATOR RESET IS NOT NEEDED FOR NEW VECTORS */
     @Override
-    public void reset(){
-      setCount = 0;
-      <#if type.major = "VarLen">lastSet = -1;</#if>
-    }
+    public void reset() { }
 
+
+    <#if type.major == "VarLen">
     public void setLastSet(int value) {
-      <#if type.major = "VarLen">
-        lastSet = value;
-      <#else>
-        throw new UnsupportedOperationException();
-      </#if>
+      /* DELEGATE TO NEW VECTOR */
+      values.setLastSet(value);
     }
+
 
     public int getLastSet() {
-      <#if type.major != "VarLen">
-        throw new UnsupportedOperationException();
-      <#else>
-        return lastSet;
-      </#if>
+      /* DELEGATE TO NEW VECTOR */
+      return values.getLastSet();
     }
+    </#if>
   }
 }
 </#list>
