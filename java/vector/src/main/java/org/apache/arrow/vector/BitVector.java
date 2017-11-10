@@ -234,12 +234,12 @@ public final class BitVector extends BaseDataValueVector implements FixedWidthVe
 
   @Override
   public Mutator getMutator() {
-    return new Mutator();
+    return mutator;
   }
 
   @Override
   public Accessor getAccessor() {
-    return new Accessor();
+    return accessor;
   }
 
   @Override
