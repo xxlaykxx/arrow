@@ -18,6 +18,7 @@
 
 package org.apache.arrow.vector;
 
+import com.google.common.base.Preconditions;
 import io.netty.buffer.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.complex.impl.DecimalReaderImpl;
