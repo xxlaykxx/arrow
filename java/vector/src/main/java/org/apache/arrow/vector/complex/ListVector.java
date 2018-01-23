@@ -31,12 +31,7 @@ import io.netty.buffer.ArrowBuf;
 import org.apache.arrow.memory.BaseAllocator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
-import org.apache.arrow.vector.AddOrGetResult;
-import org.apache.arrow.vector.BufferBacked;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.ValueVector;
-import org.apache.arrow.vector.ZeroVector;
-import org.apache.arrow.vector.BitVectorHelper;
+import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.impl.ComplexCopier;
 import org.apache.arrow.vector.complex.impl.UnionListReader;
 import org.apache.arrow.vector.complex.impl.UnionListWriter;
@@ -100,6 +95,32 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector, 
     }
 
     addOrGetVector.getVector().initializeChildrenFromFields(field.getChildren());
+  }
+
+  @Override
+  public void setInitialCapacity(int numRecords) {
+    validityAllocationSizeInBytes = getValidityBufferSizeFromCount(numRecords);
+    super.setInitialCapacity(numRecords);
+  }
+
+  /**
+   * Specialized version of setInitialCapacity() for ListVector. This is
+   * used by some callers when they want to explicitly control and be
+   * conservative about memory allocated for inner data vector. This is
+   * very useful when we are working with memory constraints for a query
+   * and have a fixed amount of memory reserved for the record batch. In
+   * such cases, we are likely to face OOM or related problems when
+   * we reserve memory for a record batch with value count x and
+   * do setInitialCapacity(x) such that each vector allocates only
+   * what is necessary and not the default amount but the multiplier
+   * forces the memory requirement to go beyond what was needed.
+   *
+   * @param numRecords value count
+   * @param multiplier repeated value multiplier
+   */
+  public void setInitialCapacity(int numRecords, int multiplier) {
+    validityAllocationSizeInBytes = getValidityBufferSizeFromCount(numRecords);
+    super.setInitialCapacity(numRecords, multiplier);
   }
 
   @Override
