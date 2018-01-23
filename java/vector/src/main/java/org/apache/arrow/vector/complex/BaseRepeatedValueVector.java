@@ -23,12 +23,7 @@ import java.util.Iterator;
 
 import org.apache.arrow.memory.BaseAllocator;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.AddOrGetResult;
-import org.apache.arrow.vector.BaseValueVector;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.UInt4Vector;
-import org.apache.arrow.vector.ValueVector;
-import org.apache.arrow.vector.ZeroVector;
+import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.util.CallBack;
@@ -106,6 +101,7 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
 
     long newAllocationSize = baseSize * 2L;
     newAllocationSize = BaseAllocator.nextPowerOfTwo(newAllocationSize);
+    newAllocationSize = Math.max(newAllocationSize, 1);
 
     if (newAllocationSize > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Unable to expand the buffer");
@@ -134,7 +130,43 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
   @Override
   public void setInitialCapacity(int numRecords) {
     offsetAllocationSizeInBytes = (numRecords + 1) * OFFSET_WIDTH;
-    vector.setInitialCapacity(numRecords * RepeatedValueVector.DEFAULT_REPEAT_PER_RECORD);
+    if (vector instanceof BaseNullableVariableWidthVector || vector instanceof BaseNullableFixedWidthVector) {
+      vector.setInitialCapacity(numRecords * RepeatedValueVector.DEFAULT_REPEAT_PER_RECORD);
+    } else {
+      vector.setInitialCapacity(numRecords);
+    }
+  }
+
+  /**
+   * Specialized version of setInitialCapacity() for ListVector. This is
+   * used by some callers when they want to explicitly control and be
+   * conservative about memory allocated for inner data vector. This is
+   * very useful when we are working with memory constraints for a query
+   * and have a fixed amount of memory reserved for the record batch. In
+   * such cases, we are likely to face OOM or related problems when
+   * we reserve memory for a record batch with value count x and
+   * do setInitialCapacity(x) such that each vector allocates only
+   * what is necessary and not the default amount but the multiplier
+   * forces the memory requirement to go beyond what was needed.
+   *
+   * @param numRecords value count
+   * @param density density of ListVector. Density is the average size of
+   *                list per position in the List vector. For example, a
+   *                density value of 10 implies each position in the list
+   *                vector has a list of 10 values.
+   *                A density value of 0.1 implies out of 10 positions in
+   *                the list vector, 1 position has a list of size 1 and
+   *                remaining positions are null (no lists) or empty lists.
+   *                This helps in tightly controlling the memory we provision
+   *                for inner data vector.
+   */
+  public void setInitialCapacity(int numRecords, double density) {
+    if ((numRecords * density) >= 2_000_000_000) {
+      throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
+    }
+    offsetAllocationSizeInBytes = (numRecords + 1) * OFFSET_WIDTH;
+    final int innerValueCapacity = (int)(numRecords * density);
+    vector.setInitialCapacity(innerValueCapacity);
   }
 
   @Override
