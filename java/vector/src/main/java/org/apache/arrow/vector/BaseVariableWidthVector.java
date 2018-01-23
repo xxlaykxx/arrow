@@ -489,6 +489,7 @@ public abstract class BaseVariableWidthVector extends BaseValueVector
 
     long newAllocationSize = baseSize * 2L;
     newAllocationSize = BaseAllocator.nextPowerOfTwo(newAllocationSize);
+    newAllocationSize = Math.max(newAllocationSize, 1);
 
     if (newAllocationSize > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Unable to expand the buffer");
@@ -541,6 +542,7 @@ public abstract class BaseVariableWidthVector extends BaseValueVector
 
     long newAllocationSize = baseSize * 2L;
     newAllocationSize = BaseAllocator.nextPowerOfTwo(newAllocationSize);
+    newAllocationSize = Math.max(newAllocationSize, 1);
 
     if (newAllocationSize > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Unable to expand the buffer");
