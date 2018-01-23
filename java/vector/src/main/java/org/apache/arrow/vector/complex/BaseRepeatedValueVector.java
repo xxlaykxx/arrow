@@ -108,6 +108,7 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
 
     long newAllocationSize = baseSize * 2L;
     newAllocationSize = BaseAllocator.nextPowerOfTwo(newAllocationSize);
+    newAllocationSize = Math.max(newAllocationSize, 1);
 
     if (newAllocationSize > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Unable to expand the buffer");
@@ -136,10 +137,10 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
   @Override
   public void setInitialCapacity(int numRecords) {
     offsetAllocationSizeInBytes = (numRecords + 1) * OFFSET_WIDTH;
-    if (vector instanceof BaseNullableFixedWidthVector || vector instanceof BaseNullableVariableWidthVector) {
+    if (vector instanceof BaseNullableVariableWidthVector || vector instanceof BaseNullableFixedWidthVector) {
       vector.setInitialCapacity(numRecords * RepeatedValueVector.DEFAULT_REPEAT_PER_RECORD);
     } else {
-     vector.setInitialCapacity(numRecords);
+      vector.setInitialCapacity(numRecords);
     }
   }
 
