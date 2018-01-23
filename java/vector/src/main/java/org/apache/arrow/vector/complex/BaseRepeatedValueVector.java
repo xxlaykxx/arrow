@@ -167,6 +167,9 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
    *                for inner data vector.
    */
   public void setInitialCapacity(int numRecords, double density) {
+    if ((numRecords * density) >= 2_000_000_000) {
+      throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
+    }
     offsetAllocationSizeInBytes = (numRecords + 1) * OFFSET_WIDTH;
     final int innerValueCapacity = (int)(numRecords * density);
     if (innerValueCapacity < 1) {
