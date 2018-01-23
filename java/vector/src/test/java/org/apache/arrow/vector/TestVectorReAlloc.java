@@ -105,17 +105,17 @@ public class TestVectorReAlloc {
       vector.setInitialCapacity(512);
       vector.allocateNew();
 
-      assertEquals(1023, vector.getValueCapacity());
+      assertEquals(512, vector.getValueCapacity());
 
       try {
-        vector.getOffsetVector().getAccessor().get(2014);
+        vector.getOffsetBuffer().getInt(2014 * 4);
         Assert.fail("Expected out of bounds exception");
       } catch (Exception e) {
         // ok
       }
 
       vector.reAlloc();
-      assertEquals(2047, vector.getValueCapacity()); // note: size - 1
+      assertEquals(1024, vector.getValueCapacity());
       assertEquals(0, vector.getOffsetBuffer().getInt(2014 * ListVector.OFFSET_WIDTH));
     }
   }
