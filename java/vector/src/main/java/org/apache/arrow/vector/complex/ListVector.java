@@ -127,8 +127,6 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector, 
    *                for inner data vector.
    */
   @Override
-=======
->>>>>>> ARROW-2019: [JAVA] Control the memory allocated for inner vector in LIST
   public void setInitialCapacity(int numRecords, double density) {
     validityAllocationSizeInBytes = getValidityBufferSizeFromCount(numRecords);
     super.setInitialCapacity(numRecords, density);
