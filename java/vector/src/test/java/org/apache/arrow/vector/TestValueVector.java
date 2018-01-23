@@ -1912,7 +1912,6 @@ public class TestValueVector {
   @Test /* VarCharVector */
   public void testSetInitialCapacity() {
     try (final VarCharVector vector = new VarCharVector(EMPTY_SCHEMA_PATH, allocator)) {
-
       /* use the default 8 data bytes on average per element */
       vector.setInitialCapacity(4096);
       vector.allocateNew();
