@@ -174,6 +174,7 @@ public abstract class BaseVariableWidthVector extends BaseValueVector
    * @param valueCount desired number of elements in the vector
    * @param density average number of bytes per variable width element
    */
+  @Override
   public void setInitialCapacity(int valueCount, double density) {
     final long size = (long) (valueCount * density);
     if (size < 1) {
