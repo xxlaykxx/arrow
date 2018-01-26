@@ -24,7 +24,6 @@ import io.netty.buffer.ArrowBuf;
 import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.BaseAllocator;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.complex.NullableMapVector;
 import org.apache.arrow.vector.schema.ArrowFieldNode;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -188,9 +187,13 @@ public abstract class BaseNullableVariableWidthVector extends BaseValueVector
    * @param density average number of bytes per variable width element
    */
   public void setInitialCapacity(int valueCount, double density) {
-    final long size = (long) (valueCount * density);
+    long size = (long) (valueCount * density);
     if (size > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
+    }
+
+    if(size == 0) {
+      size = 1;
     }
     valueAllocationSizeInBytes = (int) size;
     validityAllocationSizeInBytes = getValidityBufferSizeFromCount(valueCount);
