@@ -182,6 +182,7 @@ public abstract class BaseVariableWidthVector extends BaseValueVector
     if (size > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
     }
+
     valueAllocationSizeInBytes = (int) size;
     validityAllocationSizeInBytes = getValidityBufferSizeFromCount(valueCount);
     /* to track the end offset of last data element in vector, we need
