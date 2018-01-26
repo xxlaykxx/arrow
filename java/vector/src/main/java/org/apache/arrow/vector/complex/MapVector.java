@@ -28,7 +28,6 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Ints;
 
@@ -98,6 +97,17 @@ public class MapVector extends AbstractMapVector {
   public void setInitialCapacity(int numRecords) {
     for (final ValueVector v : (Iterable<ValueVector>) this) {
       v.setInitialCapacity(numRecords);
+    }
+  }
+
+  @Override
+  public void setInitialCapacity(int valueCount, double density) {
+    for (final ValueVector vector : (Iterable<ValueVector>) this) {
+      if (vector instanceof DensityAwareVector) {
+        ((DensityAwareVector)vector).setInitialCapacity(valueCount, density);
+      } else {
+        vector.setInitialCapacity(valueCount);
+      }
     }
   }
 

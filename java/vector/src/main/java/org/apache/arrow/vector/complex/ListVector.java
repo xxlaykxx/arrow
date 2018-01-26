@@ -129,6 +129,7 @@ public class ListVector extends BaseRepeatedValueVector implements FieldVector, 
    *                This helps in tightly controlling the memory we provision
    *                for inner data vector.
    */
+  @Override
   public void setInitialCapacity(int numRecords, double density) {
     validityAllocationSizeInBytes = getValidityBufferSizeFromCount(numRecords);
     super.setInitialCapacity(numRecords, density);
