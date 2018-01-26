@@ -172,7 +172,12 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
     }
     offsetAllocationSizeInBytes = (numRecords + 1) * OFFSET_WIDTH;
-    final int innerValueCapacity = (int)(numRecords * density);
+    int innerValueCapacity = (int)(numRecords * density);
+
+    if(innerValueCapacity == 0) {
+      innerValueCapacity = 1;
+    }
+
     vector.setInitialCapacity(innerValueCapacity);
   }
 
