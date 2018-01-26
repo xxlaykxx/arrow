@@ -18,6 +18,7 @@
 
 import java.lang.Override;
 
+import org.apache.arrow.vector.util.OversizedAllocationException;
 import org.apache.drill.exec.exception.OutOfMemoryException;
 import org.apache.drill.exec.vector.BaseDataValueVector;
 import org.apache.drill.exec.vector.BaseValueVector;
@@ -301,7 +302,18 @@ public final class ${className} extends BaseDataValueVector implements VariableW
     allocationSizeInBytes = (int)size;
     offsetVector.setInitialCapacity(valueCount + 1);
   }
+  
 
+  @Override
+  public void setInitialCapacity(int valueCount, double density) {
+    long size = (long) (valueCount * density);
+    if (size > MAX_ALLOCATION_SIZE) {
+      throw new OversizedAllocationException("Requested amount of memory is more than max allowed allocation size");
+    }
+    allocationSizeInBytes = (int)size;
+    offsetVector.setInitialCapacity(valueCount + 1);
+  }
+  
   @Override
   public void allocateNew() {
     if(!allocateNewSafe()){

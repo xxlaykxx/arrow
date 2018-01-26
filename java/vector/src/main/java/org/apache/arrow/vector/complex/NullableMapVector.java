@@ -21,8 +21,6 @@ package org.apache.arrow.vector.complex;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 import com.google.common.collect.ObjectArrays;
@@ -346,6 +344,12 @@ public class NullableMapVector extends MapVector implements FieldVector {
   public void setInitialCapacity(int numRecords) {
     validityAllocationSizeInBytes = BitVectorHelper.getValidityBufferSize(numRecords);
     super.setInitialCapacity(numRecords);
+  }
+
+  @Override
+  public void setInitialCapacity(int numRecords, double density) {
+    validityAllocationSizeInBytes = BitVectorHelper.getValidityBufferSize(numRecords);
+    super.setInitialCapacity(numRecords, density);
   }
 
   @Override

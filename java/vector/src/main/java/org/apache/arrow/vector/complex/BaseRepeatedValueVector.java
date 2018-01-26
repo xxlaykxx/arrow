@@ -160,6 +160,7 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
    *                This helps in tightly controlling the memory we provision
    *                for inner data vector.
    */
+  @Override
   public void setInitialCapacity(int numRecords, double density) {
     if ((numRecords * density) >= 2_000_000_000) {
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
@@ -171,7 +172,11 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
       innerValueCapacity = 1;
     }
 
-    vector.setInitialCapacity(innerValueCapacity);
+    if (vector instanceof DensityAwareVector) {
+      ((DensityAwareVector)vector).setInitialCapacity(innerValueCapacity, density);
+    } else {
+      vector.setInitialCapacity(innerValueCapacity);
+    }
   }
 
   @Override
