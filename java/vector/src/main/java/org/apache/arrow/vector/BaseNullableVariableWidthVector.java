@@ -724,7 +724,7 @@ public abstract class BaseNullableVariableWidthVector extends BaseValueVector
     splitAndTransferOffsetBuffer(startIndex, length, target);
     target.setLastSet(length - 1);
     if (this.valueCount > 0) {
-      target.setValueCount(this.valueCount);
+      target.setValueCount(length);
     }
   }
 
