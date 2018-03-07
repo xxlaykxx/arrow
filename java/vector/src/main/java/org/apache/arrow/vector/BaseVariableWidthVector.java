@@ -174,15 +174,16 @@ public abstract class BaseVariableWidthVector extends BaseValueVector
    * @param valueCount desired number of elements in the vector
    * @param density average number of bytes per variable width element
    */
+  @Override
   public void setInitialCapacity(int valueCount, double density) {
     final long size = (long) (valueCount * density);
-    if (size < 1) {
-      throw new IllegalArgumentException("With the provided density and value count, potential capacity of the data buffer is 0");
-    }
     if (size > MAX_ALLOCATION_SIZE) {
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
     }
 
+    if(size == 0) {
+      size = 1;
+    }
     valueAllocationSizeInBytes = (int) size;
     validityAllocationSizeInBytes = getValidityBufferSizeFromCount(valueCount);
     /* to track the end offset of last data element in vector, we need

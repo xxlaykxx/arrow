@@ -25,6 +25,7 @@ import org.apache.arrow.memory.BaseAllocator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.AddOrGetResult;
 import org.apache.arrow.vector.BaseValueVector;
+import org.apache.arrow.vector.DensityAwareVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.UInt4Vector;
 import org.apache.arrow.vector.ValueVector;
@@ -167,6 +168,7 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
    *                This helps in tightly controlling the memory we provision
    *                for inner data vector.
    */
+  @Override
   public void setInitialCapacity(int numRecords, double density) {
     if ((numRecords * density) >= 2_000_000_000) {
       throw new OversizedAllocationException("Requested amount of memory is more than max allowed");
@@ -176,7 +178,12 @@ public abstract class BaseRepeatedValueVector extends BaseValueVector implements
     if (innerValueCapacity < 1) {
       throw new IllegalArgumentException("With the provided density and value count, potential value capacity for the data vector is 0");
     }
-    vector.setInitialCapacity(innerValueCapacity);
+
+    if (vector instanceof DensityAwareVector) {
+      ((DensityAwareVector)vector).setInitialCapacity(innerValueCapacity, density);
+    } else {
+      vector.setInitialCapacity(innerValueCapacity);
+    }
   }
 
   @Override
