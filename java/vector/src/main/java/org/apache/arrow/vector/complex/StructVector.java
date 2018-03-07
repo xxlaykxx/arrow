@@ -356,6 +356,12 @@ public class StructVector extends NonNullableStructVector implements FieldVector
   }
 
   @Override
+  public void setInitialCapacity(int numRecords, double density) {
+    validityAllocationSizeInBytes = BitVectorHelper.getValidityBufferSize(numRecords);
+    super.setInitialCapacity(numRecords, density);
+  }
+
+  @Override
   public boolean allocateNewSafe() {
     /* Boolean to keep track if all the memory allocations were successful
      * Used in the case of composite vectors when we need to allocate multiple
