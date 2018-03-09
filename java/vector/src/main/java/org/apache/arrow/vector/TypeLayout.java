@@ -176,13 +176,16 @@ public class TypeLayout {
 
       @Override
       public TypeLayout visit(Date type) {
+	if (type.getUnit() == null)
+	  return newFixedWidthTypeLayout(BufferLayout.dataBuffer(64));
         switch (type.getUnit()) {
           case DAY:
             return newFixedWidthTypeLayout(BufferLayout.dataBuffer(32));
           case MILLISECOND:
             return newFixedWidthTypeLayout(BufferLayout.dataBuffer(64));
           default:
-            throw new UnsupportedOperationException("Unknown unit " + type.getUnit());
+            //throw new UnsupportedOperationException("Unknown unit " + type.getUnit());
+	    return newFixedWidthTypeLayout(BufferLayout.dataBuffer(64));
         }
       }
 
