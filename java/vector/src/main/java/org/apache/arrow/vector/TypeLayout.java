@@ -182,7 +182,8 @@ public class TypeLayout {
           case MILLISECOND:
             return newFixedWidthTypeLayout(BufferLayout.dataBuffer(64));
           default:
-            throw new UnsupportedOperationException("Unknown unit " + type.getUnit());
+            //throw new UnsupportedOperationException("Unknown unit " + type.getUnit());
+	    return newFixedWidthTypeLayout(BufferLayout.dataBuffer(64));
         }
       }
 
