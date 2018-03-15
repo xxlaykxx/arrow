@@ -130,7 +130,7 @@ public class NullableMapVector extends MapVector implements FieldVector {
 
   @Override
   public TransferPair makeTransferPair(ValueVector to) {
-    return new NullableMapTransferPair(this, (NullableMapVector) to, true);
+    return new NullableMapTransferPair(this, (NullableMapVector) to, false);
   }
 
   @Override
