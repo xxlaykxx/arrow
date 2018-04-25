@@ -406,7 +406,6 @@ public abstract class BaseNullableVariableWidthVector extends BaseValueVector
     try {
       allocateBytes(curAllocationSizeValue, curAllocationSizeValidity, curAllocationSizeOffset);
     } catch (Exception e) {
-      e.printStackTrace();
       clear();
       return false;
     }
@@ -439,8 +438,8 @@ public abstract class BaseNullableVariableWidthVector extends BaseValueVector
     try {
       allocateBytes(totalBytes, validityBufferSize, offsetBufferSize);
     } catch (Exception e) {
-      e.printStackTrace();
       clear();
+      throw e;
     }
   }
 
