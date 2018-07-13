@@ -260,6 +260,11 @@ table Field {
   // children apply only to Nested data types like Struct, List and Union
   children: [Field];
 
+  // layout field is deprecated - is derived from ArrowType
+  // still here for backward compatibility to
+  // deserialize Field serialized with older version
+  layout: byte (deprecated);
+
   // User-defined metadata
   custom_metadata: [ KeyValue ];
 }
