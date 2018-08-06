@@ -18,6 +18,8 @@
 
 package org.apache.arrow.memory;
 
+import io.netty.buffer.ArrowBuf;
+
 /**
  * An allocation listener being notified for allocation/deallocation
  * <p>
@@ -34,6 +36,16 @@ public interface AllocationListener {
     @Override
     public boolean onFailedAllocation(long size, AllocationOutcome outcome) {
       return false;
+    }
+
+    @Override
+    public boolean onRelease(long size) {
+      return false;
+    }
+
+    @Override
+    public boolean onKeepReleasedMemory(ArrowBuf arrowBuf) {
+      throw new UnsupportedOperationException("NOOP listener will never keep released arrow buffer");
     }
   };
 
@@ -55,4 +67,20 @@ public interface AllocationListener {
    */
   boolean onFailedAllocation(long size, AllocationOutcome outcome);
 
+  /**
+   * Called whenever a buffer is released and its refCount is down to zero, giving the caller a chance to keep
+   * the memory in the buffer that is being released back to system.
+   * @param size     the buffer size that is being released
+   * @return true, if caller want to keep the memory in the buffer that is being released;
+   *         false, otherwise and the memory will be released back to system
+   */
+  boolean onRelease(long size);
+
+  /**
+   * Called whenever a buffer is released and the caller want to keep the memory (return true in onRelease), giving
+   * the caller a chance to keep the buffer with the memory that is going to be released.
+   * @param arrowBuf     the buffer holding the memory that is going to be released
+   * @return true, if caller want to keep the buffer; false, otherwise and the memory will be released back to system
+   */
+  boolean onKeepReleasedMemory(ArrowBuf arrowBuf);
 }

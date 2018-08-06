@@ -106,6 +106,10 @@ public abstract class BaseAllocator extends Accountant implements BufferAllocato
 
   }
 
+  public AllocationListener getListener() {
+    return listener;
+  }
+
   private static String createErrorMsg(final BufferAllocator allocator, final int rounded, final
   int requested) {
     if (rounded != requested) {

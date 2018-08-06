@@ -168,11 +168,31 @@ public class AllocationManager {
 
     if (oldLedger == owningLedger) {
       if (map.isEmpty()) {
-        // no one else owns, lets release.
-        oldLedger.allocator.releaseBytes(size);
-        underlying.release();
-        amDestructionTime = System.nanoTime();
-        owningLedger = null;
+        // no one else owns, we will release.
+        // before release, ask caller if it want to keep the memory.
+        if (allocator.getListener().onRelease(size)) {
+          // the caller wants to keep it, and then create a new arrow buffer.
+          owningLedger = this.associate(allocator);
+          ArrowBuf newBuffer = owningLedger.newArrowBuf(0, size, null);
+          Preconditions.checkArgument(newBuffer.capacity() == size, "Allocated capacity %d was not equal to requested capacity %d.", new Object[]{newBuffer.capacity(), size});
+          if (!allocator.getListener().onKeepReleasedMemory(newBuffer)) {
+            // the caller change its mind to not to keep the memory, lets release.
+            map.remove(allocator);
+            allocator.dissociateLedger(owningLedger);
+            allocator.releaseBytes(size);
+            underlying.release();
+            amDestructionTime = System.nanoTime();
+            owningLedger = null;
+          } else if (BaseAllocator.DEBUG) {
+            owningLedger.historicalLog.recordEvent("keep the released memory %d", size);
+          }
+        } else {
+          // caller don't want to keep the memory, lets release.
+          oldLedger.allocator.releaseBytes(size);
+          underlying.release();
+          amDestructionTime = System.nanoTime();
+          owningLedger = null;
+        }
       } else {
         // we need to change the owning allocator. we've been removed so we'll get whatever is
         // top of list

@@ -24,8 +24,13 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.Ignore;
 import org.junit.Test;
+
+import com.google.common.base.Preconditions;
 
 import io.netty.buffer.ArrowBuf;
 import io.netty.buffer.ArrowBuf.TransferResult;
@@ -227,14 +232,23 @@ public class TestBaseAllocator {
   // When set to 'expand on fail', it attempts to expand the associated allocator's limit
   private static final class TestAllocationListener implements AllocationListener {
     private int numCalls;
-    private long totalMem;
+    private long allocatedMem;
     private boolean expandOnFail;
     BufferAllocator expandAlloc;
     long expandLimit;
+    private boolean keptReleasedMemory;
+    private long maxKeptMemorySize;
+    List<ArrowBuf> arrowBufs = new ArrayList<>();
 
     TestAllocationListener() {
+      this(false, 0L);
+    }
+
+    TestAllocationListener(boolean keptReleasedMemory, long maxKeptMemorySize) {
+      this.keptReleasedMemory = keptReleasedMemory;
+      this.maxKeptMemorySize = maxKeptMemorySize;
       this.numCalls = 0;
-      this.totalMem = 0;
+      this.allocatedMem = 0;
       this.expandOnFail = false;
       this.expandAlloc = null;
       this.expandLimit = 0;
@@ -243,7 +257,7 @@ public class TestBaseAllocator {
     @Override
     public void onAllocation(long size) {
       numCalls++;
-      totalMem += size;
+      allocatedMem += size;
     }
 
     @Override
@@ -253,6 +267,31 @@ public class TestBaseAllocator {
         return true;
       }
       return false;
+    }
+
+    public void setKeptReleasedMemory(boolean keptReleasedMemory) {
+      this.keptReleasedMemory = keptReleasedMemory;
+    }
+
+
+    @Override
+    public boolean onRelease(long size) {
+      if (!keptReleasedMemory) {
+        allocatedMem -= size;
+      }
+      return keptReleasedMemory;
+    }
+
+    @Override
+    public boolean onKeepReleasedMemory(ArrowBuf arrowBuf) {
+      Preconditions.checkArgument(keptReleasedMemory, "keptReleasedMemory must be true");
+      if (arrowBuf.capacity() <= maxKeptMemorySize) {
+        arrowBufs.add(arrowBuf);
+        return true;
+      } else {
+        allocatedMem -= arrowBuf.capacity();
+        return false;
+      }
     }
 
     void setExpandOnFail(BufferAllocator expandAlloc, long expandLimit) {
@@ -265,8 +304,18 @@ public class TestBaseAllocator {
       return numCalls;
     }
 
-    long getTotalMem() {
-      return totalMem;
+    long getAllocatedMem() {
+      return allocatedMem;
+    }
+
+    public List<ArrowBuf> getArrowBufs() {
+      return arrowBufs;
+    }
+
+    void close() {
+      for (ArrowBuf buf : arrowBufs) {
+        buf.close();
+      }
     }
   }
 
@@ -274,10 +323,10 @@ public class TestBaseAllocator {
   public void testRootAllocator_listeners() throws Exception {
     TestAllocationListener l1 = new TestAllocationListener();
     assertEquals(0, l1.getNumCalls());
-    assertEquals(0, l1.getTotalMem());
+    assertEquals(0, l1.getAllocatedMem());
     TestAllocationListener l2 = new TestAllocationListener();
     assertEquals(0, l2.getNumCalls());
-    assertEquals(0, l2.getTotalMem());
+    assertEquals(0, l2.getAllocatedMem());
     // root and first-level child share the first listener
     // second-level and third-level child share the second listener
     try (final RootAllocator rootAllocator = new RootAllocator(l1, MAX_ALLOCATION)) {
@@ -285,23 +334,23 @@ public class TestBaseAllocator {
         final ArrowBuf buf1 = c1.buffer(16);
         assertNotNull("allocation failed", buf1);
         assertEquals(1, l1.getNumCalls());
-        assertEquals(16, l1.getTotalMem());
+        assertEquals(16, l1.getAllocatedMem());
         buf1.release();
         try (final BufferAllocator c2 = c1.newChildAllocator("c2", l2, 0, MAX_ALLOCATION)) {
           final ArrowBuf buf2 = c2.buffer(32);
           assertNotNull("allocation failed", buf2);
           assertEquals(1, l1.getNumCalls());
-          assertEquals(16, l1.getTotalMem());
+          assertEquals(0, l1.getAllocatedMem());
           assertEquals(1, l2.getNumCalls());
-          assertEquals(32, l2.getTotalMem());
+          assertEquals(32, l2.getAllocatedMem());
           buf2.release();
           try (final BufferAllocator c3 = c2.newChildAllocator("c3", 0, MAX_ALLOCATION)) {
             final ArrowBuf buf3 = c3.buffer(64);
             assertNotNull("allocation failed", buf3);
             assertEquals(1, l1.getNumCalls());
-            assertEquals(16, l1.getTotalMem());
+            assertEquals(0, l1.getAllocatedMem());
             assertEquals(2, l2.getNumCalls());
-            assertEquals(32 + 64, l2.getTotalMem());
+            assertEquals(64, l2.getAllocatedMem());
             buf3.release();
           }
         }
@@ -313,7 +362,7 @@ public class TestBaseAllocator {
   public void testRootAllocator_listenerAllocationFail() throws Exception {
     TestAllocationListener l1 = new TestAllocationListener();
     assertEquals(0, l1.getNumCalls());
-    assertEquals(0, l1.getTotalMem());
+    assertEquals(0, l1.getAllocatedMem());
     // Test attempts to allocate too much from a child whose limit is set to half of the max allocation
     // The listener's callback triggers, expanding the child allocator's limit, so then the allocation succeeds
     try (final RootAllocator rootAllocator = new RootAllocator(MAX_ALLOCATION)) {
@@ -325,19 +374,93 @@ public class TestBaseAllocator {
           // expected
         }
         assertEquals(0, l1.getNumCalls());
-        assertEquals(0, l1.getTotalMem());
+        assertEquals(0, l1.getAllocatedMem());
 
         l1.setExpandOnFail(c1, MAX_ALLOCATION);
         ArrowBuf arrowBuf = c1.buffer(MAX_ALLOCATION);
         assertNotNull("allocation failed", arrowBuf);
         assertEquals(1, l1.getNumCalls());
-        assertEquals(MAX_ALLOCATION, l1.getTotalMem());
+        assertEquals(MAX_ALLOCATION, l1.getAllocatedMem());
         arrowBuf.release();
       }
     }
   }
 
-    private static void allocateAndFree(final BufferAllocator allocator) {
+  @Test
+  public void testRootAllocator_listenerNotKeepAllReleasedMemory() throws Exception {
+    TestAllocationListener l1 = new TestAllocationListener();
+    // root and first-level child share the first listener
+    // second-level and third-level child share the second listener
+    try (final RootAllocator rootAllocator = new RootAllocator(l1, MAX_ALLOCATION)) {
+      try (final BufferAllocator c1 = rootAllocator.newChildAllocator("c1", 0, MAX_ALLOCATION)) {
+        final ArrowBuf bufs[] = new ArrowBuf[10];
+        for (int i = 0; i < 10; i++) {
+          bufs[i] = c1.buffer(1 << (i + 1));
+        }
+        assertEquals(2046, l1.getAllocatedMem());
+        assertEquals(2046, c1.getAllocatedMemory());
+        for (int i = 0; i < 10; i++) {
+          bufs[i].close();
+        }
+        assertEquals(0, l1.getAllocatedMem());
+        assertEquals(0, l1.getArrowBufs().size());
+        assertEquals(0, c1.getAllocatedMemory());
+      }
+    }
+  }
+
+  @Test
+  public void testRootAllocator_listenerKeepAllReleasedMemory() throws Exception {
+    TestAllocationListener l1 = new TestAllocationListener(true, 1 << 10);
+    // root and first-level child share the first listener
+    // second-level and third-level child share the second listener
+    try (final RootAllocator rootAllocator = new RootAllocator(l1, MAX_ALLOCATION)) {
+      try (final BufferAllocator c1 = rootAllocator.newChildAllocator("c1", 0, MAX_ALLOCATION)) {
+        final ArrowBuf bufs[] = new ArrowBuf[10];
+        for (int i = 0; i < 10; i++) {
+          bufs[i] = c1.buffer(1 << (i + 1));
+        }
+        assertEquals(2046, l1.getAllocatedMem());
+        assertEquals(2046, c1.getAllocatedMemory());
+        for (int i = 0; i < 10; i++) {
+          bufs[i].close();
+        }
+        assertEquals(2046, l1.getAllocatedMem());
+        assertEquals(10, l1.getArrowBufs().size());
+        assertEquals(2046, c1.getAllocatedMemory());
+
+        l1.setKeptReleasedMemory(false);
+        l1.close();
+      }
+    }
+  }
+
+  @Test
+  public void testRootAllocator_listenerKeepPartialReleasedMemory() throws Exception {
+    TestAllocationListener l1 = new TestAllocationListener(true, 128);
+    // root and first-level child share the first listener
+    // second-level and third-level child share the second listener
+    try (final RootAllocator rootAllocator = new RootAllocator(l1, MAX_ALLOCATION)) {
+      try (final BufferAllocator c1 = rootAllocator.newChildAllocator("c1", 0, MAX_ALLOCATION)) {
+        final ArrowBuf bufs[] = new ArrowBuf[10];
+        for (int i = 0; i < 10; i++) {
+          bufs[i] = c1.buffer(1 << (i + 1));
+        }
+        assertEquals(2046, l1.getAllocatedMem());
+        for (int i = 0; i < 10; i++) {
+          bufs[i].close();
+        }
+        assertEquals(254, l1.getAllocatedMem());
+        assertEquals(7, l1.getArrowBufs().size());
+        assertEquals(254, c1.getAllocatedMemory());
+
+        l1.setKeptReleasedMemory(false);
+        l1.close();
+      }
+    }
+  }
+
+  private static void allocateAndFree(final BufferAllocator allocator) {
     final ArrowBuf arrowBuf = allocator.buffer(512);
     assertNotNull("allocation failed", arrowBuf);
     arrowBuf.release();
