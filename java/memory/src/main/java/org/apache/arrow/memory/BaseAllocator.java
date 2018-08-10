@@ -45,7 +45,7 @@ public abstract class BaseAllocator extends Accountant implements BufferAllocato
   final String name;
   final RootAllocator root;
   private final Object DEBUG_LOCK = DEBUG ? new Object() : null;
-  private final AllocationListener listener;
+  private AllocationListener listener;
   private final BaseAllocator parentAllocator;
   private final ArrowByteBufAllocator thisAsByteBufAllocator;
   private final IdentityHashMap<BaseAllocator, Object> childAllocators;
@@ -104,6 +104,10 @@ public abstract class BaseAllocator extends Accountant implements BufferAllocato
       childLedgers = null;
     }
 
+  }
+
+  public void setListener(AllocationListener listener) {
+    this.listener = listener;
   }
 
   public AllocationListener getListener() {
