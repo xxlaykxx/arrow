@@ -119,7 +119,7 @@ public class PromotableWriter extends AbstractPromotableFieldWriter {
     }
   }
 
-  protected FieldWriter getWriter(MinorType type) {
+  public FieldWriter getWriter(MinorType type) {
     if (state == State.UNION) {
       ((UnionWriter) writer).getWriter(type);
     } else if (state == State.UNTYPED) {
