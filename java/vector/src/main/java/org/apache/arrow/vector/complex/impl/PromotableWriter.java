@@ -31,6 +31,8 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.util.TransferPair;
 
+import com.google.common.base.Preconditions;
+
 /**
  * This FieldWriter implementation delegates all FieldWriter API calls to an inner FieldWriter. This inner field writer
  * can start as a specific type, and this class will promote the writer to a UnionWriter if a call is made that the specifically
@@ -127,15 +129,20 @@ public class PromotableWriter extends AbstractPromotableFieldWriter {
         // ???
         return null;
       }
-      ValueVector v = listVector.addOrGetVector(FieldType.nullable(type.getType())).getVector();
-      v.allocateNew();
-      setWriter(v);
-      writer.setPosition(position);
+      setType(type);
     } else if (type != this.type) {
       promoteToUnion();
       ((UnionWriter) writer).getWriter(type);
     }
     return writer;
+  }
+
+  protected void setType(MinorType type) {
+    Preconditions.checkArgument(state == State.UNTYPED, "previous state should be UNTYPED");
+    ValueVector v = listVector.addOrGetVector(FieldType.nullable(type.getType())).getVector();
+    v.allocateNew();
+    setWriter(v);
+    writer.setPosition(position);
   }
 
   @Override
