@@ -316,6 +316,8 @@ public class TestComplexCopier {
       // copy values
       FieldReader in = from.getReader();
       FieldWriter out = to.getWriter();
+      in.setPosition(0);
+      out.setPosition(0);
       UnsupportedOperationException e = assertThrows(UnsupportedOperationException.class,
           () -> ComplexCopier.copy(in, out));
       assertTrue(e.getMessage().contains("BigDecimal scale must equal that in the Arrow vector: 2 != 1"));
