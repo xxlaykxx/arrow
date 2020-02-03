@@ -20,7 +20,9 @@
 FROM quay.io/pypa/manylinux1_x86_64:2020-03-07-9c5ba95
 
 # Install dependencies
-RUN yum install -y xz ccache flex && yum clean all
+RUN yum install -y xz java-1.7.0-openjdk-devel ccache flex wget && yum clean all
+
+ENV JAVA_HOME=/usr/lib/jvm/java-1.7.0-openjdk/
 
 ADD scripts/build_zlib.sh /
 RUN /build_zlib.sh
@@ -89,7 +91,7 @@ ENV GLOG_HOME /usr
 WORKDIR /
 RUN git clone https://github.com/matthew-brett/multibuild.git && cd multibuild && git checkout 68a4af043e2adb0d9353d4a0e1f3d871203237aa
 
-ARG llvm
+ARG llvm=8
 ADD scripts/build_llvm.sh /
 RUN /build_llvm.sh ${llvm}
 
