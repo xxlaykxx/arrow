@@ -43,7 +43,6 @@ public class UnionFixedSizeListWriter extends AbstractFieldWriter {
   protected PromotableWriter writer;
   private boolean inStruct = false;
   private String structName;
-  private int lastIndex = 0;
   private final int listSize;
 
   public UnionFixedSizeListWriter(FixedSizeListVector vector) {
@@ -72,7 +71,7 @@ public class UnionFixedSizeListWriter extends AbstractFieldWriter {
 
   @Override
   public Field getField() {
-    return null;
+    return vector.getField();
   }
 
   public void setValueCount(int count) {
@@ -86,7 +85,8 @@ public class UnionFixedSizeListWriter extends AbstractFieldWriter {
 
   @Override
   public void close() throws Exception {
-
+    vector.close();
+    writer.close();
   }
 
   @Override
@@ -174,16 +174,25 @@ public class UnionFixedSizeListWriter extends AbstractFieldWriter {
 
   @Override
   public void write(DecimalHolder holder) {
+    if (writer.idx() >= (idx() + 1) * listSize) {
+      throw new IllegalStateException(String.format("values at index %s is greater than listSize %s", idx(), listSize));
+    }
     writer.write(holder);
     writer.setPosition(writer.idx() + 1);
   }
 
-  public void writeDecimal(int start, ArrowBuf buffer) {
-    writer.writeDecimal(start, buffer);
+  public void writeDecimal(int start, ArrowBuf buffer, ArrowType arrowType) {
+    if (writer.idx() >= (idx() + 1) * listSize) {
+      throw new IllegalStateException(String.format("values at index %s is greater than listSize %s", idx(), listSize));
+    }
+    writer.writeDecimal(start, buffer, arrowType);
     writer.setPosition(writer.idx() + 1);
   }
 
   public void writeDecimal(BigDecimal value) {
+    if (writer.idx() >= (idx() + 1) * listSize) {
+      throw new IllegalStateException(String.format("values at index %s is greater than listSize %s", idx(), listSize));
+    }
     writer.writeDecimal(value);
     writer.setPosition(writer.idx() + 1);
   }
