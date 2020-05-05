@@ -189,6 +189,11 @@ public class PromotableWriter extends AbstractPromotableFieldWriter {
   }
 
   @Override
+  public void writeNull() {
+    setPosition(idx() + 1);
+  }
+
+  @Override
   public void setPosition(int index) {
     super.setPosition(index);
     FieldWriter w = getWriter();
