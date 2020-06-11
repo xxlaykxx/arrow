@@ -129,4 +129,16 @@ class FastUtf8DataGenerator : public DataGenerator<std::string> {
   char cur_char_;
 };
 
+class Utf8DateDataGenerator : public DataGenerator<std::string> {
+ public:
+  Utf8DateDataGenerator() {}
+
+  std::string GenerateData() {
+    return "1990-0" + std::to_string(random_.next() / 9 + 1) + "-1" +
+           std::to_string(random_.next() / 9 + 1);
+  }
+
+ private:
+  Random random_;
+};
 }  // namespace gandiva
