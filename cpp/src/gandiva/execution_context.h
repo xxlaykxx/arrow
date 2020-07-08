@@ -19,7 +19,6 @@
 
 #include <memory>
 #include <string>
-#include "arrow/util/parsing.h"
 #include "gandiva/simple_arena.h"
 
 namespace gandiva {
@@ -47,22 +46,9 @@ class ExecutionContext {
     arena_.Reset();
   }
 
-  bool parse_float(const char* data, int32_t len, float* val) {
-    return float_converter_(data, len, val);
-  }
-
-  bool parse_double(const char* data, int32_t len, double* val) {
-    return double_converter_(data, len, val);
-  }
-
  private:
   std::string error_msg_;
   SimpleArena arena_;
-
-  // Keeping float_converters as part of execution context since they have non-trivial
-  // construction cost
-  arrow::internal::StringConverter<arrow::FloatType> float_converter_;
-  arrow::internal::StringConverter<arrow::DoubleType> double_converter_;
 };
 
 }  // namespace gandiva
