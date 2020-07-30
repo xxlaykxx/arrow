@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <mutex>
 
 #include "gandiva/lru_cache.h"
@@ -26,7 +27,9 @@ namespace gandiva {
 template <class KeyType, typename ValueType>
 class Cache {
  public:
-  explicit Cache(size_t capacity = CACHE_SIZE) : cache_(capacity) {}
+  explicit Cache(size_t capacity = CACHE_SIZE) : cache_(capacity) {
+    std::cout << "Creating gandiva cache with capapcity: " << capacity << std::endl;
+  }
   ValueType GetModule(KeyType cache_key) {
     arrow::util::optional<ValueType> result;
     mtx_.lock();
@@ -43,7 +46,7 @@ class Cache {
 
  private:
   LruCache<KeyType, ValueType> cache_;
-  static const int CACHE_SIZE = 250;
+  static const int CACHE_SIZE = 500;
   std::mutex mtx_;
 };
 }  // namespace gandiva
