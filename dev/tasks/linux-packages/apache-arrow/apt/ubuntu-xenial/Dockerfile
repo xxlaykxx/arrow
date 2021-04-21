@@ -35,7 +35,8 @@ RUN \
   apt install -y -V ${quiet} \
     autoconf-archive \
     build-essential \
-    clang-8 \
+    ccache \
+    clang \
     cmake \
     devscripts \
     dh-autoreconf \
@@ -57,8 +58,13 @@ RUN \
     libsnappy-dev \
     libssl-dev \
     libutf8proc-dev \
+<<<<<<< HEAD:dev/tasks/linux-packages/apache-arrow/apt/ubuntu-xenial/Dockerfile
     libzstd1-dev \
     llvm-8-dev \
+=======
+    libzstd-dev \
+    llvm-dev \
+>>>>>>> c408048d1... ARROW-12467: [C++][Gandiva] Add support for LLVM12:dev/tasks/linux-packages/apache-arrow/apt/debian-bullseye/Dockerfile
     lsb-release \
     pkg-config \
     protobuf-compiler \

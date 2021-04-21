@@ -34,7 +34,8 @@ RUN \
   apt update ${quiet} && \
   apt install -y -V ${quiet} \
     build-essential \
-    clang-11 \
+    ccache \
+    clang \
     cmake \
     debhelper \
     devscripts \
@@ -58,7 +59,7 @@ RUN \
     libthrift-dev \
     libutf8proc-dev \
     libzstd-dev \
-    llvm-11-dev \
+    llvm-dev \
     lsb-release \
     ninja-build \
     pkg-config \
