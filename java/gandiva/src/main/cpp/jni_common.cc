@@ -42,6 +42,13 @@
 #include "id_to_module_map.h"
 #include "module_holder.h"
 #include "org_apache_arrow_gandiva_evaluator_JniWrapper.h"
+#include "gandiva/configuration.h"
+#include "gandiva/decimal_scalar.h"
+#include "gandiva/filter.h"
+#include "gandiva/projector.h"
+#include "gandiva/secondary_cache.h"
+#include "gandiva/selection_vector.h"
+#include "gandiva/tree_expr_builder.h"
 
 using gandiva::ConditionPtr;
 using gandiva::DataTypePtr;
@@ -158,6 +165,8 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   env->DeleteGlobalRef(gandiva_exception_);
   env->DeleteGlobalRef(vector_expander_class_);
   env->DeleteGlobalRef(vector_expander_ret_class_);
+  env->DeleteGlobalRef(secondary_cache_class_);
+  env->DeleteGlobalRef(cache_buf_ret_class_);
 }
 
 DataTypePtr ProtoTypeToTime32(const types::ExtGandivaType& ext_type) {
@@ -681,7 +690,7 @@ void JavaSecondaryCache::Set(std::shared_ptr<arrow::Buffer> key,
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_buildProjector(
-    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray exprs_arr,
+    JNIEnv* env, jobject obj, jobject jcache, jbyteArray schema_arr, jbyteArray exprs_arr,
     jint selection_vector_type, jlong configuration_id) {
   jlong module_id = 0LL;
   std::shared_ptr<Projector> projector;
@@ -700,6 +709,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_build
   FieldVector ret_types;
   gandiva::Status status;
   auto mode = gandiva::SelectionVector::MODE_NONE;
+
+  std::shared_ptr<JavaSecondaryCache> sec_cache = nullptr;
+  if (jcache != nullptr) {
+    // enable the secondary cache
+    sec_cache = std::make_shared<JavaSecondaryCache>(env, jcache);
+  }
 
   std::shared_ptr<Configuration> config = ConfigHolder::MapLookup(configuration_id);
   std::stringstream ss;
@@ -755,8 +770,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_build
       mode = gandiva::SelectionVector::MODE_UINT32;
       break;
   }
+
   // good to invoke the evaluator now
-  status = Projector::Make(schema_ptr, expr_vector, mode, config, &projector);
+  status = Projector::Make(schema_ptr, expr_vector, mode, config, sec_cache, &projector);
 
   if (!status.ok()) {
     ss << "Failed to make LLVM module due to " << status.message() << "\n";
@@ -982,8 +998,8 @@ void releaseFilterInput(jbyteArray schema_arr, jbyte* schema_bytes,
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_buildFilter(
-    JNIEnv* env, jobject obj, jbyteArray schema_arr, jbyteArray condition_arr,
-    jlong configuration_id) {
+    JNIEnv* env, jobject obj, jobject jcache, jbyteArray schema_arr,
+    jbyteArray condition_arr, jlong configuration_id) {
   jlong module_id = 0LL;
   std::shared_ptr<Filter> filter;
   std::shared_ptr<FilterHolder> holder;
@@ -999,6 +1015,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_build
   ConditionPtr condition_ptr;
   SchemaPtr schema_ptr;
   gandiva::Status status;
+
+  std::shared_ptr<JavaSecondaryCache> sec_cache = nullptr;
+  if (jcache != nullptr) {
+    sec_cache = std::make_shared<JavaSecondaryCache>(env, jcache);
+  }
 
   std::shared_ptr<Configuration> config = ConfigHolder::MapLookup(configuration_id);
   std::stringstream ss;
@@ -1038,7 +1059,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_arrow_gandiva_evaluator_JniWrapper_build
   }
 
   // good to invoke the filter builder now
-  status = Filter::Make(schema_ptr, condition_ptr, config, &filter);
+  status = Filter::Make(schema_ptr, condition_ptr, config, sec_cache, &filter);
   if (!status.ok()) {
     ss << "Failed to make LLVM module due to " << status.message() << "\n";
     releaseFilterInput(schema_arr, schema_bytes, condition_arr, condition_bytes, env);
