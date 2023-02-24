@@ -61,13 +61,6 @@ jobs:
           # aws-sdk-cpp and bundled aws-sdk-cpp. We uninstall Homebrew's
           # aws-sdk-cpp to ensure using only bundled aws-sdk-cpp.
           brew uninstall aws-sdk-cpp
-      - name: Build C++ Libs
-        run: |
-          set -e
-          arrow/ci/scripts/java_jni_macos_build.sh \
-            $GITHUB_WORKSPACE/arrow \
-            $GITHUB_WORKSPACE/arrow/cpp-build \
-            $GITHUB_WORKSPACE/arrow/java-dist
       - name: Compress into single artifact to keep directory structure
         run: tar -cvzf arrow-shared-libs-macos.tar.gz arrow/java-dist/
       - name: Upload Artifacts
@@ -82,6 +75,11 @@ jobs:
     needs: [build-cpp-macos, build-cpp-ubuntu]
     steps:
       {{ macros.github_checkout_arrow(fetch_depth=0)|indent }}
+      - name: copy macos custom dylibs
+        run: |
+          cp -L $GITHUB_WORKSPACE/arrow/cpp/libgandiva_jni.dylib arrow/java-dist/
+          cp -L $GITHUB_WORKSPACE/arrow/cpp/libarrow_dataset_jni.dylib arrow/java-dist/
+          cp -L $GITHUB_WORKSPACE/arrow/cpp/libarrow_orc_jni.dylib arrow/java-dist/
       - name: Download Linux C++ Libraries
         uses: actions/download-artifact@v2
         with:
