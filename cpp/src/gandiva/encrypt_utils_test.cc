@@ -151,4 +151,19 @@ TEST(TestShaEncryptUtils, TestAesEncryptDecrypt) {
 
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(to_encrypt), to_encrypt_len),
             std::string(reinterpret_cast<const char*>(decrypted_7), decrypted_7_len));
+
+ //should throw an exception when decrypted with wrong key
+  key =
+        "abcdefghijklmnop";
+  auto* cipher_8 =
+        "4A5jOAh9FNGwoMeuJukfllrLdHEZxA2DyuSQAWz77dfn";
+
+  int32_t cipher_8_len =
+              static_cast<int32_t>(strlen(reinterpret_cast<const char*>(cipher_8)));
+
+  unsigned char decrypted_8[256];
+  EXPECT_THROW(gandiva::aes_decrypt(reinterpret_cast<const char*>(cipher_8),
+                                                   cipher_8_len, key, decrypted_8), std::runtime_error);
+
+
 }

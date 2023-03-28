@@ -322,7 +322,6 @@ const char* gdv_fn_aes_encrypt(int64_t context, const char* data, int32_t data_l
                                     reinterpret_cast<unsigned char*>(ret));
   } catch (const std::runtime_error& e) {
     gdv_fn_context_set_error_msg(context, e.what());
-    return nullptr;
   }
 
   return ret;
@@ -353,7 +352,6 @@ const char* gdv_fn_aes_decrypt(int64_t context, const char* data, int32_t data_l
                                     reinterpret_cast<unsigned char*>(ret));
   } catch (const std::runtime_error& e) {
     gdv_fn_context_set_error_msg(context, e.what());
-    return nullptr;
   }
 
   return ret;
