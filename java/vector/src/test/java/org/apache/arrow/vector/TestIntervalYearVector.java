@@ -18,8 +18,14 @@
 package org.apache.arrow.vector;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.types.IntervalUnit;
+import org.apache.arrow.vector.types.Types;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.util.TransferPair;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -54,5 +60,14 @@ public class TestIntervalYearVector {
       assertEquals("2 years 6 months ", vector.getAsStringBuilder(30).toString());
 
     }
+  }
+
+  @Test
+  public void testGetTransferPairWithField() {
+    final IntervalYearVector fromVector = new IntervalYearVector("", allocator);
+    final TransferPair transferPair = fromVector.getTransferPair(fromVector.getField(), allocator);
+    final IntervalYearVector toVector = (IntervalYearVector) transferPair.getTo();
+    // Field inside a new vector created by reusing a field should be the same in memory as the original field.
+    assertSame(fromVector.getField(), toVector.getField());
   }
 }
