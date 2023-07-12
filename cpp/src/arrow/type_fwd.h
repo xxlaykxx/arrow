@@ -123,11 +123,6 @@ class StringArray;
 class StringBuilder;
 struct StringScalar;
 
-class StructType;
-class StructArray;
-class StructBuilder;
-struct StructScalar;
-
 class LargeStringType;
 class LargeStringArray;
 class LargeStringBuilder;
@@ -459,7 +454,6 @@ ARROW_EXPORT const std::shared_ptr<DataType>& float32();
 ARROW_EXPORT const std::shared_ptr<DataType>& float64();
 /// \brief Return a StringType instance
 ARROW_EXPORT const std::shared_ptr<DataType>& utf8();
-ARROW_EXPORT const std::shared_ptr<DataType>& structType();
 /// \brief Return a LargeStringType instance
 ARROW_EXPORT const std::shared_ptr<DataType>& large_utf8();
 /// \brief Return a BinaryType instance
