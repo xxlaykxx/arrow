@@ -21,9 +21,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.types.IntervalUnit;
-import org.apache.arrow.vector.types.Types;
-import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.util.TransferPair;
 
 import org.junit.After;
