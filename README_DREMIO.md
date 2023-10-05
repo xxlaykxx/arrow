@@ -2,6 +2,9 @@ git checkout -b dremio_24.3_12.0 apache-arrow-12.0.1
 
 Apply starting from the bottom and working upwards.
 
+git cherry-pick edab273d91adbcbeab812f15eb2344940d2151f4
+git cherry-pick f2dbe77d1b320a54afc3c618ec3cb1879bd0d517
+git cherry-pick 4b929d730588a253414b6644ea32554bac5cbae3
 git cherry-pick c3eaf4cb2904a45e8b8029eb6ee5b67be9464e0d
 git cherry-pick d4dc6d525cfd89aa7ca7a23e0d755f5f2e3b2c48
 git cherry-pick 0002859096a93cd9b0630db757a277b75a483263
