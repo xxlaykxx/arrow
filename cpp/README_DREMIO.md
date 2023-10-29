@@ -1,0 +1,13 @@
+git checkout -b dremio_25.0_13.0 apache-arrow-13.0.0
+
+Apply starting from the bottom and working upwards.
+git cherry-pick f2dbe77d1b320a54afc3c618ec3cb1879bd0d517 
+git cherry-pick 4b929d730588a253414b6644ea32554bac5cbae3 
+git cherry-pick 5ed2f61a9fa72d011248bf9cfec7a9734d5b2aa0 
+git cherry-pick c601e318a897b3a6fd5f4fd3068beda1460173a2 
+git cherry-pick f067f1a8c6c4b37425b4699d2bc2ebb1c9939c29 
+git cherry-pick c98bd88316bb91114dd06aaa21a1bdfd77ecdf23 
+git cherry-pick d61ca1ce72dc392fef91c1fd1a224b15dfb5e7a5 
+git cherry-pick 03f3105b33d08f0c5c0344317251bd23e188261d
+git cherry-pick e62861bb54cd33456765b96bc5617aa4cde54824
+git cherry-pick aa81530fff012ab2da178851432799baa6544cab
