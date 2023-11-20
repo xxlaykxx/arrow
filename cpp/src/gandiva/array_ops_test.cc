@@ -15,17 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gandiva/exported_funcs.h>
-#include <gandiva/exported_funcs_registry.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+#include "gandiva/execution_context.h"
+#include "gandiva/precompiled/types.h"
 
 namespace gandiva {
-void RegisterExportedFuncs() {
-  REGISTER_EXPORTED_FUNCS(ExportedStubFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedContextFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedTimeFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedDecimalFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedStringFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedHashFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedArrayFunctions);
+
+TEST(TestArrayOps, TestInt32ContainsInt32) {
+  gandiva::ExecutionContext ctx;
+  uint64_t ctx_ptr = reinterpret_cast<gdv_int64>(&ctx);
+  int32_t data[] = {1, 2, 3, 4};
+  int32_t entry_offsets_len = 3;
+  int32_t contains_data = 2;
+  int32_t entry_validity = 15;
+  bool valid = false;
+
+  EXPECT_EQ(
+      array_int32_contains_int32(ctx_ptr, data, entry_offsets_len, &entry_validity,
+                              true, contains_data, true, 0, 3, &valid),
+      true);
 }
+
 }  // namespace gandiva

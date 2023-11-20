@@ -33,6 +33,11 @@ class ExportedFuncsBase {
   virtual arrow::Status AddMappings(Engine* engine) const = 0;
 };
 
+// Class for exporting Array functions
+class ExportedArrayFunctions : public ExportedFuncsBase {
+  arrow::Status AddMappings(Engine* engine) const override;
+};
+
 // Class for exporting Stub functions
 class ExportedStubFunctions : public ExportedFuncsBase {
   arrow::Status AddMappings(Engine* engine) const override;

@@ -15,17 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gandiva/exported_funcs.h>
-#include <gandiva/exported_funcs_registry.h>
+#pragma once
+
+#include <vector>
+
+#include "gandiva/native_function.h"
 
 namespace gandiva {
-void RegisterExportedFuncs() {
-  REGISTER_EXPORTED_FUNCS(ExportedStubFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedContextFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedTimeFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedDecimalFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedStringFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedHashFunctions);
-  REGISTER_EXPORTED_FUNCS(ExportedArrayFunctions);
-}
+
+std::vector<NativeFunction> GetArrayFunctionRegistry();
+
 }  // namespace gandiva
