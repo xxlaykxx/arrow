@@ -136,6 +136,18 @@ void ArrowToProtobuf(DataTypePtr type, types::ExtGandivaType* gandiva_data_type)
       gandiva_data_type->set_type(types::GandivaType::INTERVAL);
       gandiva_data_type->set_intervaltype(types::IntervalType::DAY_TIME);
       break;
+    case arrow::Type::LIST: {
+      gandiva_data_type->set_type(types::GandivaType::LIST);
+      if (type->num_fields() <= 0) {
+        break;
+      }
+      if (type->fields()[0]->type()->id() != arrow::Type::LIST) {
+        types::ExtGandivaType gt;
+        ArrowToProtobuf(type->fields()[0]->type(), &gt);
+        gandiva_data_type->set_listtype(gt.type());
+      }
+      break;
+    }
     default:
       // un-supported types. test ensures that
       // when one of these are added build breaks.
