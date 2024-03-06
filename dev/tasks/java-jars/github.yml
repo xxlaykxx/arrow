@@ -39,6 +39,11 @@ jobs:
             archery_arch: "amd64"
             archery_arch_alias: "x86_64"
             archery_arch_short: "amd64"
+          - runs_on: ["buildjet-8vcpu-ubuntu-2204-arm"]
+            arch: "aarch_64"
+            archery_arch: "arm64v8"
+            archery_arch_alias: "aarch64"
+            archery_arch_short: "arm64"
     steps:
       {{ macros.github_checkout_arrow()|indent }}
       {{ macros.github_free_space()|indent }}
@@ -50,11 +55,12 @@ jobs:
             df -h
       - name: Set Swap Space
         continue-on-error: true
-        uses: thejerrybao/setup-swap-space@v1
-        with:
-          swap-space-path: /swapfile
-          swap-size-gb: 16
-          remove-existing-swap-files: false
+        shell: bash
+        run: |
+            sudo fallocate -l 16G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
       - name: Build C++ libraries
         env:
         {{ macros.github_set_sccache_envvars()|indent(8) }}
@@ -171,6 +177,7 @@ jobs:
         run: |
           mv artifacts/*/*.tar.gz .
           tar -xvzf arrow-shared-libs-linux-x86_64.tar.gz
+          tar -xvzf arrow-shared-libs-linux-aarch_64.tar.gz
           tar -xvzf arrow-shared-libs-macos-x86_64.tar.gz
       - name: Test that shared libraries exist
         run: |
@@ -180,6 +187,11 @@ jobs:
           test -f arrow/java-dist/x86_64/libarrow_dataset_jni.so
           test -f arrow/java-dist/x86_64/libarrow_orc_jni.so
           test -f arrow/java-dist/x86_64/libgandiva_jni.so
+          
+          test -f arrow/java-dist/aarch_64/libarrow_cdata_jni.so
+          test -f arrow/java-dist/aarch_64/libarrow_dataset_jni.so
+          test -f arrow/java-dist/aarch_64/libarrow_orc_jni.so
+          test -f arrow/java-dist/aarch_64/libgandiva_jni.so
 
           test -f arrow/java-dist/x86_64/libarrow_cdata_jni.dylib
           test -f arrow/java-dist/x86_64/libarrow_dataset_jni.dylib
