@@ -965,7 +965,7 @@
                     -DARROW_JAVA_JNI_ENABLE_C=ON
                     -DARROW_JAVA_JNI_ENABLE_DEFAULT=OFF
                     -DBUILD_TESTING=OFF
-                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_BUILD_TYPE=Debug
                     -DCMAKE_INSTALL_LIBDIR=lib/${os.detected.arch}
                     -DCMAKE_INSTALL_PREFIX=${arrow.c.jni.dist.dir}
                   </commandlineArgs>
@@ -981,7 +981,7 @@
                 <configuration>
                   <executable>cmake</executable>
                   <commandlineArgs>
-                    --build java-jni --target install --config Release
+                    --build java-jni --target install --config Debug
                   </commandlineArgs>
                   <workingDirectory>../</workingDirectory>
                 </configuration>
@@ -1038,7 +1038,7 @@
                     -DARROW_S3=ON
                     -DARROW_SUBSTRAIT=${ARROW_DATASET}
                     -DARROW_USE_CCACHE=ON
-                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_BUILD_TYPE=Debug
                     -DCMAKE_INSTALL_LIBDIR=lib/${os.detected.arch}
                     -DCMAKE_INSTALL_PREFIX=java-dist
                     -DCMAKE_UNITY_BUILD=ON
@@ -1056,7 +1056,7 @@
                 <configuration>
                   <executable>cmake</executable>
                   <commandlineArgs>
-                    --build cpp-jni --target install --config Release
+                    --build cpp-jni --target install --config Debug
                   </commandlineArgs>
                   <workingDirectory>../</workingDirectory>
                   <skip>${cpp.dependencies.builded}</skip>
@@ -1079,7 +1079,7 @@
                     -DARROW_JAVA_JNI_ENABLE_ORC=${ARROW_JAVA_JNI_ENABLE_ORC}
                     -DARROW_JAVA_JNI_ENABLE_DEFAULT=ON
                     -DBUILD_TESTING=OFF
-                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_BUILD_TYPE=Debug
                     -DCMAKE_INSTALL_LIBDIR=lib/${os.detected.arch}
                     -DCMAKE_INSTALL_PREFIX=${arrow.dataset.jni.dist.dir}
                     -DCMAKE_PREFIX_PATH=${project.basedir}/../java-dist/lib/${os.detected.arch}/cmake
@@ -1098,7 +1098,7 @@
                 <configuration>
                   <executable>cmake</executable>
                   <commandlineArgs>
-                    --build java-jni --target install --config Release
+                    --build java-jni --target install --config Debug
                   </commandlineArgs>
                   <workingDirectory>../</workingDirectory>
                 </configuration>
@@ -1158,7 +1158,7 @@
                     -DARROW_WITH_SNAPPY=ON
                     -DARROW_WITH_ZLIB=ON
                     -DARROW_WITH_ZSTD=ON
-                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_BUILD_TYPE=Debug
                     -DCMAKE_INSTALL_LIBDIR=lib/${os.detected.arch}
                     -DCMAKE_INSTALL_PREFIX=java-dist
                     -DCMAKE_UNITY_BUILD=ON
@@ -1200,7 +1200,7 @@
                     -DARROW_JAVA_JNI_ENABLE_ORC=${ARROW_JAVA_JNI_ENABLE_ORC}
                     -DARROW_JAVA_JNI_ENABLE_DEFAULT=ON
                     -DBUILD_TESTING=OFF
-                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_BUILD_TYPE=Debug
                     -DCMAKE_INSTALL_LIBDIR=lib/${os.detected.arch}
                     -DCMAKE_INSTALL_PREFIX=${arrow.dataset.jni.dist.dir}
                     -DCMAKE_PREFIX_PATH=${project.basedir}/../java-dist/lib/${os.detected.arch}/cmake
@@ -1217,7 +1217,7 @@
                 <configuration>
                   <executable>cmake</executable>
                   <commandlineArgs>
-                    --build java-jni --target install --config Release
+                    --build java-jni --target install --config Debug
                   </commandlineArgs>
                   <workingDirectory>../</workingDirectory>
                 </configuration>

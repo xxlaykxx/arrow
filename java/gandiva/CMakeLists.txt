@@ -27,6 +27,7 @@ add_jar(arrow_java_jni_gandiva_jar
         src/main/java/org/apache/arrow/gandiva/exceptions/GandivaException.java
         GENERATE_NATIVE_HEADERS
         arrow_java_jni_gandiva_headers)
+set(CMAKE_BUILD_TYPE Debug)
 
 set(GANDIVA_PROTO_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(GANDIVA_PROTO_OUTPUT_FILES "${GANDIVA_PROTO_OUTPUT_DIR}/gandiva/types.pb.cc"
@@ -75,6 +76,7 @@ else()
                     "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/symbols.map"
                     CXX_LINKER_SUPPORTS_VERSION_SCRIPT)
 endif()
+target_compile_options(arrow_java_jni_gandiva PUBLIC -g -O0)
 # filter out everything that is not needed for the jni bridge
 # statically linked stdc++ has conflicts with stdc++ loaded by other libraries.
 if(CXX_LINKER_SUPPORTS_VERSION_SCRIPT)
