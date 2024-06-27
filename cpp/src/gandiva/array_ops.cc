@@ -116,6 +116,36 @@ bool array_contains_template(const Type* entry_buf,
   return false;
 }
 
+template <typename Type>
+char* array_to_string_template(const Type* entry_buf,
+                   int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
+                   const char* delimiter) {
+  bool first_element = true;
+
+  const int32_t* entry_validityAdjusted = entry_validity - entry_len;
+  int64_t validityBitIndex = -entry_len;
+  std::string result; // Initialize the result variable as an empty string
+
+  for (int i = 0; i < entry_len; i++) {
+    if (!arrow::bit_util::GetBit(reinterpret_cast<const uint8_t*>(entry_validityAdjusted), validityBitIndex + i)) {
+      continue;
+    }
+
+    if (!first_element) {
+      result += delimiter;
+    }
+
+    Type entry_item = *(entry_buf + i);
+    result += std::to_string(entry_item);
+
+    first_element = false;
+  }
+
+  char* result_char = new char[result.length() + 1];
+  std::strcpy(result_char, result.c_str());
+  return result_char;
+}
+
 extern "C" {
 
 bool array_int32_contains_int32(int64_t context_ptr, const int32_t* entry_buf,
@@ -207,6 +237,35 @@ double* array_float64_remove(int64_t context_ptr, const double* entry_buf,
                               remove_data, remove_data_valid,
                               loop_var, validity_index_var,
                               valid_row, out_len, valid_ptr);
+}
+
+bool array_int32_to_string(int64_t context_ptr, const int32_t* entry_buf,
+                              int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
+                              int32_t contains_data, bool contains_data_valid, 
+                              const char* delimiter) {
+  return array_to_string_template<int32_t>(entry_buf, entry_len, entry_validity, 
+                              combined_row_validity, delimiter);
+}
+
+bool array_int64_to_string(int64_t context_ptr, const int64_t* entry_buf,
+                              int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
+                              const char* delimiter) {
+  return array_to_string_template<int64_t>(entry_buf, entry_len, entry_validity, 
+                              combined_row_validity, delimiter);
+}
+
+bool array_float32_to_string(int64_t context_ptr, const float* entry_buf,
+                              int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
+                              const char* delimiter) {
+  return array_to_string_template<float>(entry_buf, entry_len, entry_validity, 
+                              combined_row_validity, delimiter);
+}
+
+bool array_float64_to_string(int64_t context_ptr, const double* entry_buf,
+                              int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
+                              const char* delimiter) {
+  return array_to_string_template<double>(entry_buf, entry_len, entry_validity, 
+                              combined_row_validity, delimiter);
 }
 }
 
