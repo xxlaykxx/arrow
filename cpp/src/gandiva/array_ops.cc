@@ -239,7 +239,7 @@ double* array_float64_remove(int64_t context_ptr, const double* entry_buf,
                               valid_row, out_len, valid_ptr);
 }
 
-bool array_int32_to_string(int64_t context_ptr, const int32_t* entry_buf,
+char* array_int32_to_string(int64_t context_ptr, const int32_t* entry_buf,
                               int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
                               int32_t contains_data, bool contains_data_valid, 
                               const char* delimiter) {
@@ -247,21 +247,21 @@ bool array_int32_to_string(int64_t context_ptr, const int32_t* entry_buf,
                               combined_row_validity, delimiter);
 }
 
-bool array_int64_to_string(int64_t context_ptr, const int64_t* entry_buf,
+char* array_int64_to_string(int64_t context_ptr, const int64_t* entry_buf,
                               int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
                               const char* delimiter) {
   return array_to_string_template<int64_t>(entry_buf, entry_len, entry_validity, 
                               combined_row_validity, delimiter);
 }
 
-bool array_float32_to_string(int64_t context_ptr, const float* entry_buf,
+char* array_float32_to_string(int64_t context_ptr, const float* entry_buf,
                               int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
                               const char* delimiter) {
   return array_to_string_template<float>(entry_buf, entry_len, entry_validity, 
                               combined_row_validity, delimiter);
 }
 
-bool array_float64_to_string(int64_t context_ptr, const double* entry_buf,
+char* array_float64_to_string(int64_t context_ptr, const double* entry_buf,
                               int32_t entry_len, const int32_t* entry_validity, bool combined_row_validity,
                               const char* delimiter) {
   return array_to_string_template<double>(entry_buf, entry_len, entry_validity, 
@@ -412,6 +412,55 @@ arrow::Status ExportedArrayFunctions::AddMappings(Engine* engine) const {
   engine->AddGlobalMappingForFunc("array_float64_remove",
                                   types->double_ptr_type(), args,
                                   reinterpret_cast<void*>(array_float64_remove));
+
+
+  //Array to string.
+  args = {types->i64_type(),      // int64_t execution_context
+          types->i32_ptr_type(),   // int8_t* input data ptr
+          types->i32_type(),      // int32_t  input length
+          types->i32_ptr_type(),   // input validity buffer
+          types->i1_type(),   // bool input row validity
+          types->i8_ptr_type()      //value to for delimiter
+        };
+  engine->AddGlobalMappingForFunc("array_int32_to_string",
+                                  types->i32_ptr_type(), args,
+                                  reinterpret_cast<void*>(array_int32_to_string));
+
+  args = {types->i64_type(),      // int64_t execution_context
+          types->i64_ptr_type(),   // int8_t* input data ptr
+          types->i32_type(),      // int32_t  input length
+          types->i32_ptr_type(),   // input validity buffer
+          types->i1_type(),   // bool input row validity
+          types->i8_ptr_type()      //value to for delimiter            
+        };
+
+  engine->AddGlobalMappingForFunc("array_int64_to_string",
+                                  types->i64_ptr_type(), args,
+                                  reinterpret_cast<void*>(array_int64_to_string));
+
+  args = {types->i64_type(),      // int64_t execution_context
+          types->float_ptr_type(),   // float* input data ptr
+          types->i32_type(),      // int32_t  input length
+          types->i32_ptr_type(),   // input validity buffer
+          types->i1_type(),   // bool input row validity
+          types->i8_ptr_type()      //value to for delimiter
+        };
+
+  engine->AddGlobalMappingForFunc("array_float32_to_string",
+                                  types->float_ptr_type(), args,
+                                  reinterpret_cast<void*>(array_float32_to_string));
+
+  args = {types->i64_type(),      // int64_t execution_context
+          types->double_ptr_type(),   // int8_t* input data ptr
+          types->i32_type(),      // int32_t  input length
+          types->i32_ptr_type(),   // input validity buffer
+          types->i1_type(),   // bool input row validity
+          types->i8_ptr_type()      //value to for delimiter      
+        };
+
+  engine->AddGlobalMappingForFunc("array_float64_to_string",
+                                  types->double_ptr_type(), args,
+                                  reinterpret_cast<void*>(array_float64_to_string));                                
   return arrow::Status::OK();
 }
 }  // namespace gandiva
