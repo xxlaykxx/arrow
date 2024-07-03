@@ -23,6 +23,20 @@ ARG arch_short
 ARG manylinux
 
 ENV MANYLINUX_VERSION=${manylinux}
+RUN if [ "${MANYLINUX_VERSION}" = "2014" ]; then \
+      sed -i \
+        -e 's/^mirrorlist/#mirrorlist/' \
+        -e 's/^#baseurl/baseurl/' \
+        -e 's/mirror\.centos\.org/vault.centos.org/' \
+        /etc/yum.repos.d/*.repo; \
+      if [ "${arch}" != "amd64" ]; then \
+        sed -i \
+          -e 's,vault\.centos\.org/centos,vault.centos.org/altarch,' \
+          /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo; \
+      fi; \
+    fi
+# Ensure dnf is installed, especially for the manylinux2014 base
+RUN yum install -y dnf
 
 # Install basic dependencies
 RUN yum install -y git flex curl autoconf zip perl-IPC-Cmd wget 
