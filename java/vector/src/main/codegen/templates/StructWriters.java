@@ -166,12 +166,12 @@ public class ${mode}StructWriter extends AbstractFieldWriter {
   public ExtensionWriter extension(String name, ArrowType arrowType) {
     String finalName = handleCase(name);
     FieldWriter writer = fields.get(finalName);
-    if(writer == null){
+    if (writer == null) {
       int vectorCount=container.size();
       FieldType fieldType = new FieldType(addVectorAsNullable, arrowType, null, null);
       ExtensionTypeVector vector = container.addOrGet(name, fieldType, ExtensionTypeVector.class);
       writer = new PromotableWriter(vector, container, getNullableStructWriterFactory());
-      if(vectorCount != container.size()) {
+      if (vectorCount != container.size()) {
         writer.allocate();
       }
       writer.setPosition(idx());

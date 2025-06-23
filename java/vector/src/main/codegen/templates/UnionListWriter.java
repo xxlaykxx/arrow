@@ -206,6 +206,7 @@ public class Union${listName}Writer extends AbstractFieldWriter {
     writer.extension(arrowType);
     return writer;
   }
+  
   @Override
   public ExtensionWriter extension(String name, ArrowType arrowType) {
     ExtensionWriter extensionWriter = writer.extension(name, arrowType);
@@ -338,10 +339,12 @@ public class Union${listName}Writer extends AbstractFieldWriter {
   public void writeExtension(Object value) {
     writer.writeExtension(value);
   }
+  
   @Override
   public void addExtensionTypeWriterFactory(ExtensionTypeWriterFactory var1) {
     writer.addExtensionTypeWriterFactory(var1);
   }
+  
   public void write(ExtensionHolder var1) {
     writer.write(var1);
   }
