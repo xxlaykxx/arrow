@@ -148,7 +148,6 @@ jobs:
           # used on test  We uninstall Homebrew's Protobuf to ensure using
           # bundled Protobuf.
           brew uninstall protobuf
-          
           # fix cmake and boost versionsAdd commentMore actions
           brew uninstall -f boost || true
           brew uninstall -f cmake || true
@@ -160,6 +159,7 @@ jobs:
           brew pin cmake
           brew pin boost
           #
+
 
           brew bundle --file=arrow/java/Brewfile
       - name: Build C++ libraries
