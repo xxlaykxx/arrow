@@ -85,7 +85,7 @@ index 2d5a854..9ff49ec 100644
 @@ -1,6 +1,7 @@
  {
    "name": "thrift",
-   "version": "0.20.0",
+   "version": "0.21.0",
 +  "port-version": 1,
    "description": "Apache Thrift is a software project spanning a variety of programming languages and use cases. Our goal is to make reliable, performant communication and data serialization across languages as efficient and seamless as possible.",
    "homepage": "https://github.com/apache/thrift",
@@ -97,7 +97,7 @@ index c6ce736..9ad1d63 100644
 @@ -8622,7 +8622,7 @@
      },
      "thrift": {
-       "baseline": "0.20.0",
+       "baseline": "0.21.0",
 -      "port-version": 0
 +      "port-version": 1
      },
@@ -112,9 +112,9 @@ index 3db38c5..7464bde 100644
    "versions": [
 +    {
 +      "git-tree": "13757a6b05741cf3c9c39e3a1dcc5e5cd685e025",
-+      "version": "0.20.0",
++      "version": "0.21.0",
 +      "port-version": 1
 +    },
      {
        "git-tree": "6855be1ce96497811d4eb0a9879baf6cf1b3610c",
-       "version": "0.20.0",
+       "version": "0.21.0",
