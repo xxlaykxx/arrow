@@ -21,7 +21,7 @@
 
 <#include "/@includes/license.ftl" />
 
-package org.apache.arrow.vector.complex.reader;
+    package org.apache.arrow.vector.complex.reader;
 
 <#include "/@includes/vv_imports.ftl" />
 
@@ -76,7 +76,7 @@ public interface BaseReader extends Positionable{
 
   public interface ScalarReader extends
   <#list vv.types as type><#list type.minor as minor><#assign name = minor.class?cap_first /> ${name}Reader, </#list></#list>
-  BaseReader {}
+  ExtensionReader, BaseReader {}
 
   interface ComplexReader{
     StructReader rootAsStruct();
